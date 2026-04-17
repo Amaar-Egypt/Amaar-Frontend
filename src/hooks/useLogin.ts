@@ -40,7 +40,6 @@ const useLogin = () => {
 
   const loginUser = useCallback(async (data: LoginRequest): Promise<LoginResult> => {
     if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_AUTH === 'true') {
-      console.log('[useLogin] Received login payload:', data)
       console.log('[useLogin] Payload keys:', Object.keys(data))
     }
 
