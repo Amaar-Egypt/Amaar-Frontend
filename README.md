@@ -1,73 +1,117 @@
-# React + TypeScript + Vite
+# Amaar Frontend - Register Flow
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Production-ready React + TypeScript frontend for user registration in the Amaar platform.
 
-Currently, two official plugins are available:
+The current implementation delivers a complete Arabic Register page with:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Modern dark UI with glassmorphism card
+- Client-side form validation using React Hook Form + Zod
+- API integration using Axios
+- Success/error handling and redirect flow
 
-## React Compiler
+## Project Overview
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+This project is built with Vite and follows a scalable architecture that separates UI, business logic, and API access.
 
-## Expanding the ESLint configuration
+The Register flow submits user data to:
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+`POST https://amaarbackend-production.up.railway.app/auth/register`
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+On success, the user sees a success message then is redirected to the login route.
+On failure, the backend message is displayed directly in the form.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Folder Structure
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```text
+src/
+  assets/
+  components/
+    BrandLogo.tsx
+    form/
+      TextField.tsx
+  context/
+    AppProviders.tsx
+  hooks/
+    useRegister.ts
+  layout/
+    AuthLayout.tsx
+  pages/
+    Login/
+      index.tsx
+    Register/
+      index.tsx
+  services/
+    apiClient.ts
+    authService.ts
+  App.tsx
+  main.tsx
+  index.css
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### Why this structure?
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- `components`: reusable UI units (inputs, logo, shared visual building blocks).
+- `pages`: route-level screens (Register and Login pages).
+- `services`: external communication layer (Axios client and auth endpoints).
+- `hooks`: reusable stateful/business logic (`useRegister`) away from JSX.
+- `context`: app-wide providers and shared state containers (scales well for auth/theme later).
+- `layout`: shared page shells and structural wrappers (`AuthLayout`) for consistency.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## How Register Flow Works
+
+1. **Form (UI Layer)**  
+   `src/pages/Register/index.tsx` renders fields for name, email, password, confirm password, and phone.
+
+2. **Validation (Client Layer)**  
+   Zod schema validates required fields, email format, password length, phone format, and password confirmation match.
+
+3. **Hook (Feature Logic Layer)**  
+   `src/hooks/useRegister.ts` handles loading state, errors, and the register action lifecycle.
+
+4. **Service (API Layer)**  
+   `src/services/authService.ts` exposes `register(data)` and sends a `POST /auth/register` request using Axios.
+
+5. **Result Handling (UX Layer)**  
+   Success -> show confirmation + redirect to `/login`.  
+   Error -> show backend-provided message.
+
+## Request Payload
+
+The register endpoint is called with:
+
+```json
+{
+  "name": "string",
+  "email": "string",
+  "password": "string",
+  "confirmPassword": "string",
+  "phone": "string"
+}
 ```
+
+## How to Run the Project
+
+```bash
+npm install
+npm run dev
+```
+
+Open the app at the URL shown by Vite (usually `http://localhost:5173`).
+
+## Environment Configuration
+
+Optional: create a `.env` file to override API base URL.
+
+```env
+VITE_API_BASE_URL=https://amaarbackend-production.up.railway.app
+```
+
+If not provided, the same production URL is used by default.
+
+## Best Practices Used
+
+- **Separation of concerns**: page UI, hook logic, and API services are independent.
+- **Reusability**: reusable `TextField` and layout components reduce duplication.
+- **Clean architecture**: predictable folders and route-level composition.
+- **Type safety**: strict TypeScript interfaces and inferred Zod form types.
+- **Production UX**: clear loading, success, and error states with graceful navigation.
