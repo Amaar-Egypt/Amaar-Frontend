@@ -23,11 +23,6 @@ const registerSchema = z
       .min(8, 'كلمة المرور يجب أن تحتوي على 8 أحرف على الأقل')
       .max(50, 'كلمة المرور يجب ألا تتجاوز 50 حرفًا'),
     confirmPassword: z.string().min(1, 'تأكيد كلمة المرور مطلوب'),
-    phone: z
-      .string()
-      .min(9, 'رقم الهاتف قصير جدًا')
-      .max(20, 'رقم الهاتف طويل جدًا')
-      .regex(/^[+]?[-\d\s]{9,20}$/, 'يرجى إدخال رقم هاتف صحيح'),
   })
   .refine((data) => data.password === data.confirmPassword, {
     path: ['confirmPassword'],
@@ -57,7 +52,6 @@ const RegisterPage = () => {
       email: '',
       password: '',
       confirmPassword: '',
-      phone: '',
     },
   })
 
@@ -142,15 +136,6 @@ const RegisterPage = () => {
                 error={errors.confirmPassword?.message}
               />
             </div>
-
-            <TextField
-              label="رقم الهاتف"
-              type="tel"
-              placeholder="05XXXXXXXX"
-              autoComplete="tel"
-              registration={register('phone')}
-              error={errors.phone?.message}
-            />
 
             <button
               type="submit"

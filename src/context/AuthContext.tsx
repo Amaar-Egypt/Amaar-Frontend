@@ -6,35 +6,56 @@ import {
 } from 'react'
 import { AuthContext } from './auth-context'
 
-// Keep long-lived and session-only tokens separate for remember-me behavior.
-const LOCAL_TOKEN_KEY = 'amaar.auth.token'
 const SESSION_TOKEN_KEY = 'amaar.auth.session-token'
 
+// Frontend-managed tokens are exposed to XSS by nature. We intentionally avoid
+// localStorage persistence and keep tokens in memory by default. When users
+// opt into "remember me", we use sessionStorage only for same-tab continuity.
+const readSessionToken = () => {
+  try {
+    return sessionStorage.getItem(SESSION_TOKEN_KEY)
+  } catch {
+    return null
+  }
+}
+
+const writeSessionToken = (token: string) => {
+  try {
+    sessionStorage.setItem(SESSION_TOKEN_KEY, token)
+  } catch {
+    // Ignore storage write failures (privacy mode/quota) and keep in-memory state.
+  }
+}
+
+const clearSessionToken = () => {
+  try {
+    sessionStorage.removeItem(SESSION_TOKEN_KEY)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
 const getInitialToken = () => {
-  return localStorage.getItem(LOCAL_TOKEN_KEY) ?? sessionStorage.getItem(SESSION_TOKEN_KEY)
+  return readSessionToken()
 }
 
 export const AuthProvider = ({ children }: PropsWithChildren) => {
   const [token, setTokenState] = useState<string | null>(() => getInitialToken())
 
-  const setToken = useCallback((nextToken: string, rememberMe = true) => {
+  const setToken = useCallback((nextToken: string, rememberMe = false) => {
     setTokenState(nextToken)
 
-    // Persist in localStorage only when the user opts into remember-me.
     if (rememberMe) {
-      localStorage.setItem(LOCAL_TOKEN_KEY, nextToken)
-      sessionStorage.removeItem(SESSION_TOKEN_KEY)
+      writeSessionToken(nextToken)
       return
     }
 
-    sessionStorage.setItem(SESSION_TOKEN_KEY, nextToken)
-    localStorage.removeItem(LOCAL_TOKEN_KEY)
+    clearSessionToken()
   }, [])
 
   const clearToken = useCallback(() => {
     setTokenState(null)
-    localStorage.removeItem(LOCAL_TOKEN_KEY)
-    sessionStorage.removeItem(SESSION_TOKEN_KEY)
+    clearSessionToken()
   }, [])
 
   const value = useMemo(

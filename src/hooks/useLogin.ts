@@ -37,12 +37,10 @@ const extractToken = (response: LoginResponse): string | undefined => {
 const useLogin = () => {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const isSafeDebugEnabled =
+    import.meta.env.DEV || import.meta.env.VITE_DEBUG_AUTH === 'true'
 
   const loginUser = useCallback(async (data: LoginRequest): Promise<LoginResult> => {
-    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_AUTH === 'true') {
-      console.log('[useLogin] Payload keys:', Object.keys(data))
-    }
-
     setIsLoading(true)
     setErrorMessage(null)
 
@@ -65,6 +63,13 @@ const useLogin = () => {
         token,
       }
     } catch (error) {
+      if (error instanceof AxiosError && isSafeDebugEnabled) {
+        console.log('[useLogin] Login request failed:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+        })
+      }
+
       const message = getErrorMessage(error)
       setErrorMessage(message)
 
@@ -75,7 +80,7 @@ const useLogin = () => {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [isSafeDebugEnabled])
 
   return {
     loginUser,
