@@ -89,12 +89,12 @@ const RegisterPage = () => {
       <section dir="rtl" className="w-full max-w-xl text-right [animation:fade-up_0.75s_ease-out]">
         <BrandLogo />
 
-        <h1 className="mb-6 text-center text-2xl font-extrabold leading-relaxed text-slate-100 sm:text-3xl">
+        <h1 className="mb-6 text-center text-2xl font-extrabold leading-relaxed text-slate-800 dark:text-slate-100 sm:text-3xl">
           ساهم في تجميل مدينتك... ابدأ الآن مع عمار
         </h1>
 
-        <div className="rounded-3xl border border-white/10 bg-slate-900/45 p-6 shadow-[0_28px_80px_rgba(2,6,23,0.62)] backdrop-blur-2xl sm:p-8">
-          <h2 className="mb-6 text-center text-xl font-bold text-slate-100 sm:text-2xl">
+        <div className="rounded-3xl border border-slate-200/65 bg-white/72 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-900/45 dark:shadow-[0_28px_80px_rgba(2,6,23,0.62)] sm:p-8">
+          <h2 className="mb-6 text-center text-xl font-bold text-slate-800 dark:text-slate-100 sm:text-2xl">
             إنشاء حساب جديد
           </h2>
 
@@ -146,22 +146,22 @@ const RegisterPage = () => {
             </button>
 
             {successMessage ? (
-              <p className="rounded-xl border border-emerald-300/40 bg-emerald-500/15 px-3 py-2 text-center text-sm text-emerald-200">
+              <p className="rounded-xl border border-emerald-300/60 bg-emerald-500/10 px-3 py-2 text-center text-sm text-emerald-700 dark:border-emerald-300/40 dark:bg-emerald-500/15 dark:text-emerald-200">
                 {successMessage} سيتم تحويلك إلى صفحة تسجيل الدخول...
               </p>
             ) : null}
 
             {errorMessage ? (
-              <p className="rounded-xl border border-rose-300/40 bg-rose-500/15 px-3 py-2 text-center text-sm text-rose-200">
+              <p className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-center text-sm text-rose-700 dark:border-rose-300/40 dark:bg-rose-500/15 dark:text-rose-200">
                 {errorMessage}
               </p>
             ) : null}
 
-            <p className="pt-1 text-center text-sm text-slate-300">
+            <p className="pt-1 text-center text-sm text-slate-600 dark:text-slate-300">
               لديك حساب بالفعل؟{' '}
               <Link
                 to="/login"
-                className="font-semibold text-emerald-300 transition hover:text-emerald-200"
+                className="font-semibold text-emerald-700 transition hover:text-emerald-600 dark:text-emerald-300 dark:hover:text-emerald-200"
               >
                 تسجيل الدخول
               </Link>
