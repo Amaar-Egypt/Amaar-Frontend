@@ -2,6 +2,8 @@ import { AxiosError } from 'axios'
 import { useCallback, useState } from 'react'
 import authService from '../services/authService'
 import type { LoginRequest, LoginResponse } from '../services/authService'
+import type { AuthUser } from '../types/auth'
+import { userFromTokenPayload } from '../utils/jwt'
 
 interface BackendErrorResponse {
   message?: string
@@ -11,7 +13,9 @@ interface BackendErrorResponse {
 interface LoginResult {
   success: boolean
   message: string
-  token?: string
+  accessToken?: string
+  refreshToken?: string
+  user?: AuthUser | null
 }
 
 const DEFAULT_ERROR_MESSAGE = 'تعذر تسجيل الدخول. تحقق من البيانات وحاول مرة أخرى.'
@@ -31,7 +35,15 @@ const getErrorMessage = (error: unknown): string => {
 
 const extractToken = (response: LoginResponse): string | undefined => {
   // Support common backend token shapes without coupling the UI to one response contract.
-  return response.token ?? response.accessToken ?? response.data?.token ?? response.data?.accessToken
+  return response.accessToken ?? response.token
+}
+
+const extractUser = (response: LoginResponse, token?: string) => {
+  if (response.user) {
+    return response.user
+  }
+
+  return userFromTokenPayload(token)
 }
 
 const useLogin = () => {
@@ -47,6 +59,7 @@ const useLogin = () => {
     try {
       const response = await authService.login(data)
       const token = extractToken(response)
+      const user = extractUser(response, token)
 
       if (!token) {
         const fallbackMessage = response.message ?? DEFAULT_ERROR_MESSAGE
@@ -60,7 +73,9 @@ const useLogin = () => {
       return {
         success: true,
         message: response.message ?? 'تم تسجيل الدخول بنجاح.',
-        token,
+        accessToken: token,
+        refreshToken: response.refreshToken,
+        user,
       }
     } catch (error) {
       if (error instanceof AxiosError && isSafeDebugEnabled) {

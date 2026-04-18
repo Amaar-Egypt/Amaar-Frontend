@@ -1,13 +1,16 @@
 import apiClient from './apiClient'
+import type { AuthUser } from '../types/auth'
 
 export interface RegisterRequest {
   name: string
   email: string
   password: string
-  confirmPassword: string
 }
 
 export interface RegisterResponse {
+  user?: AuthUser
+  accessToken?: string
+  refreshToken?: string
   message?: string
 }
 
@@ -17,17 +20,28 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  message?: string
-  token?: string
+  user?: AuthUser
   accessToken?: string
-  data?: {
-    token?: string
-    accessToken?: string
-  }
+  refreshToken?: string
+  token?: string
+  message?: string
+}
+
+export interface ProfileResponse extends AuthUser {
+  reports?: unknown[]
+  totalPoints?: number
+  createdAt?: string
+  updatedAt?: string
 }
 
 const register = async (data: RegisterRequest): Promise<RegisterResponse> => {
-  const response = await apiClient.post<RegisterResponse>('/auth/register', data)
+  const payload = {
+    name: data.name.trim(),
+    email: data.email.trim(),
+    password: data.password,
+  }
+
+  const response = await apiClient.post<RegisterResponse>('/auth/register', payload)
   return response.data
 }
 
@@ -48,9 +62,15 @@ const login = async (data: LoginRequest): Promise<LoginResponse> => {
   return response.data
 }
 
+const getCurrentUserProfile = async (): Promise<ProfileResponse> => {
+  const response = await apiClient.get<ProfileResponse>('/users/me')
+  return response.data
+}
+
 const authService = {
   register,
   login,
+  getCurrentUserProfile,
 }
 
 export default authService
