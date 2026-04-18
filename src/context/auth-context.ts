@@ -1,10 +1,22 @@
 import { createContext } from 'react'
+import type { AuthUser } from '../types/auth'
 
 export interface AuthContextValue {
   token: string | null
+  refreshToken: string | null
+  user: AuthUser | null
+  role: AuthUser['role'] | null
   isAuthenticated: boolean
-  setToken: (token: string, rememberMe?: boolean) => void
-  clearToken: () => void
+  isAuthority: boolean
+  isAuthLoading: boolean
+  startSession: (params: {
+    accessToken: string
+    refreshToken?: string
+    user?: AuthUser | null
+    rememberMe?: boolean
+  }) => void
+  clearSession: () => void
+  updateUser: (user: AuthUser | null) => void
 }
 
 export const AuthContext = createContext<AuthContextValue | undefined>(undefined)
