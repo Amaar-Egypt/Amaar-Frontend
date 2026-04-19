@@ -16,6 +16,7 @@ export interface AuthContextValue {
     rememberMe?: boolean
   }) => void
   clearSession: () => void
+  logout: () => Promise<void>
   updateUser: (user: AuthUser | null) => void
 }
 

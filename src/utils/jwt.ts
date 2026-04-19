@@ -1,12 +1,22 @@
-import type { AuthUser, UserRole } from '../types/auth'
+import type { AuthUser } from '../types/auth'
+import {
+  normalizeAuthorityId,
+  normalizeUserRole,
+} from './authNormalization'
 
 interface JwtPayload {
   sub?: string
   id?: string
+  userId?: string
   name?: string
+  fullName?: string
+  displayName?: string
+  username?: string
   email?: string
-  role?: UserRole
+  role?: string
+  userRole?: string
   authorityId?: string
+  authority_id?: string
 }
 
 const decodeBase64Url = (value: string) => {
@@ -44,21 +54,24 @@ export const readJwtPayload = (token?: string): JwtPayload | null => {
 
 export const userFromTokenPayload = (token?: string): AuthUser | null => {
   const payload = readJwtPayload(token)
-  if (!payload?.role) {
+  if (!payload) {
     return null
   }
 
-  const id = payload.id ?? payload.sub
+  const role = normalizeUserRole(payload.role ?? payload.userRole)
+  const id = payload.id ?? payload.userId ?? payload.sub
+  const name = payload.name ?? payload.fullName ?? payload.displayName ?? payload.username
+  const authorityId = normalizeAuthorityId(payload.authorityId ?? payload.authority_id)
 
-  if (!id || !payload.email || !payload.name) {
+  if (!role || !id || !payload.email || !name) {
     return null
   }
 
   return {
     id,
-    name: payload.name,
+    name,
     email: payload.email,
-    role: payload.role,
-    authorityId: payload.authorityId,
+    role,
+    authorityId,
   }
 }

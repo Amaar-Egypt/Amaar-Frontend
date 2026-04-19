@@ -105,7 +105,65 @@ The authority dashboard is built with a scalable layered approach:
 5. Role-based access:
    - `authority` and `admin` -> redirected to `/dashboard`
    - other roles -> kept away from authority dashboard
-6. API 401 responses trigger centralized session cleanup and redirect flow.
+6. API 401 responses trigger automatic refresh using `/auth/refresh`.
+7. If refresh succeeds, the app retries the failed request silently.
+8. If refresh fails, the session is cleared and the user is redirected to `/login`.
+
+## Refresh Token Lifecycle
+
+The frontend uses a production-style token lifecycle with automatic renewal.
+
+### Session Bootstrap
+
+- On app startup, `AuthContext` reads stored session from `authStorage`.
+- `authTokenManager` keeps in-memory `accessToken` + `refreshToken` for interceptors.
+- Storage location depends on Remember Me:
+  - `localStorage` when user chooses `تذكرني`
+  - `sessionStorage` otherwise
+
+### Request Lifecycle
+
+- `apiClient` request interceptor automatically attaches:
+  - `Authorization: Bearer <accessToken>`
+- If access token is valid, request completes normally.
+
+### Expired Access Token
+
+- On `401` from protected endpoints, response interceptor:
+  1. Checks refresh eligibility (prevents auth endpoint loops).
+  2. Queues one refresh request to avoid duplicate concurrent refresh calls.
+  3. Calls `POST /auth/refresh` using stored `refreshToken`.
+  4. Updates in-memory + persisted session with new token(s).
+  5. Retries the original failed request automatically.
+
+### Refresh Failure
+
+- If refresh fails (invalid/expired refresh token):
+  - session is cleared
+  - auth state resets
+  - `ProtectedRoute` redirects to `/login`
+
+### Loop and Concurrency Safety
+
+- Refresh is skipped for auth endpoints:
+  - `/auth/login`
+  - `/auth/register`
+  - `/auth/refresh`
+  - `/auth/logout`
+- Requests are retried only once (`_retry` guard).
+- Concurrent `401` responses share one in-flight refresh promise.
+
+## Logout Lifecycle
+
+- User logout calls `POST /auth/logout`.
+- Frontend then clears:
+  - access token
+  - refresh token
+  - user profile session
+  - storage preference snapshot
+- User is redirected to `/login`.
+
+If backend logout fails, frontend still clears local session to guarantee secure sign-out.
 
 ## Theme System
 
@@ -125,6 +183,8 @@ Auth endpoints used:
 
 - `POST /auth/register`
 - `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
 - `GET /users/me`
 
 Report endpoints used:

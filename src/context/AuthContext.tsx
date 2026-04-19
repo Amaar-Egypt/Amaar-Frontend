@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react'
@@ -14,10 +15,12 @@ import {
 } from '../services/authStorage'
 import {
   registerAuthFailureHandler,
-  setAccessToken as setApiAccessToken,
+  registerAuthTokensRefreshedHandler,
+  setAuthTokens,
 } from '../services/authTokenManager'
 import type { AuthUser } from '../types/auth'
 import { hasAuthorityAccess } from '../types/auth'
+import { normalizeAuthUser } from '../utils/authNormalization'
 import { userFromTokenPayload } from '../utils/jwt'
 import { AuthContext } from './auth-context'
 
@@ -32,14 +35,22 @@ const getInitialSession = () => {
     }
   }
 
+  const normalizedStoredUser = normalizeAuthUser(session.user)
+
   return {
     accessToken: session.accessToken,
     refreshToken: session.refreshToken ?? null,
-    user: session.user ?? userFromTokenPayload(session.accessToken),
+    user: normalizedStoredUser ?? userFromTokenPayload(session.accessToken),
   }
 }
 
 const toAuthUser = (profile: Awaited<ReturnType<typeof authService.getCurrentUserProfile>>): AuthUser => {
+  const normalizedProfile = normalizeAuthUser(profile)
+
+  if (normalizedProfile) {
+    return normalizedProfile
+  }
+
   return {
     id: profile.id,
     name: profile.name,
@@ -60,6 +71,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   const [isAuthLoading, setIsAuthLoading] = useState(
     Boolean(initialSession.accessToken && !initialSession.user),
   )
+  const userRef = useRef<AuthUser | null>(initialSession.user)
 
   const startSession = useCallback(
     ({ accessToken, refreshToken: nextRefreshToken, user: nextUser, rememberMe = false }: {
@@ -68,7 +80,8 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       user?: AuthUser | null
       rememberMe?: boolean
     }) => {
-      const resolvedUser = nextUser ?? userFromTokenPayload(accessToken)
+      const resolvedUser = normalizeAuthUser(nextUser) ?? userFromTokenPayload(accessToken)
+      userRef.current = resolvedUser
 
       setTokenState(accessToken)
       setRefreshToken(nextRefreshToken ?? null)
@@ -88,15 +101,32 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   )
 
   const clearSession = useCallback(() => {
+    userRef.current = null
     setTokenState(null)
     setRefreshToken(null)
     setUser(null)
     setIsAuthLoading(false)
+    setAuthTokens({
+      accessToken: null,
+      refreshToken: null,
+    })
     clearAuthSession()
   }, [])
 
+  const logout = useCallback(async () => {
+    try {
+      await authService.logout(refreshToken ?? undefined)
+    } catch {
+      // Always clear local session even if backend logout request fails.
+    } finally {
+      clearSession()
+    }
+  }, [clearSession, refreshToken])
+
   const updateUser = useCallback((nextUser: AuthUser | null) => {
-    setUser(nextUser)
+    const normalizedUser = normalizeAuthUser(nextUser) ?? nextUser
+    userRef.current = normalizedUser
+    setUser(normalizedUser)
 
     if (!token) {
       return
@@ -106,15 +136,48 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       {
         accessToken: token,
         refreshToken: refreshToken ?? undefined,
-        user: nextUser,
+        user: normalizedUser,
       },
       isSessionPersisted(),
     )
   }, [refreshToken, token])
 
   useEffect(() => {
-    setApiAccessToken(token)
-  }, [token])
+    userRef.current = user
+  }, [user])
+
+  useEffect(() => {
+    setAuthTokens({
+      accessToken: token,
+      refreshToken,
+    })
+  }, [refreshToken, token])
+
+  useEffect(() => {
+    registerAuthTokensRefreshedHandler((tokens) => {
+      if (!tokens.accessToken) {
+        clearSession()
+        return
+      }
+
+      setTokenState(tokens.accessToken)
+      setRefreshToken(tokens.refreshToken)
+      setIsAuthLoading(false)
+
+      writeAuthSession(
+        {
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken ?? undefined,
+          user: userRef.current,
+        },
+        isSessionPersisted(),
+      )
+    })
+
+    return () => {
+      registerAuthTokensRefreshedHandler(null)
+    }
+  }, [clearSession])
 
   useEffect(() => {
     registerAuthFailureHandler(() => {
@@ -127,7 +190,10 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   }, [clearSession])
 
   useEffect(() => {
-    if (!token || user) {
+    const shouldHydrateUser =
+      !user || (user.role === 'authority' && !user.authorityId)
+
+    if (!token || !shouldHydrateUser) {
       setIsAuthLoading(false)
       return
     }
@@ -176,12 +242,14 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       isAuthLoading,
       startSession,
       clearSession,
+      logout,
       updateUser,
     }),
     [
       clearSession,
       isAuthLoading,
       isAuthority,
+      logout,
       refreshToken,
       role,
       startSession,
