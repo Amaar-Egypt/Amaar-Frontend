@@ -1,4 +1,5 @@
 import apiClient from './apiClient'
+import type { ApiEnvelope } from '../types/api'
 import type {
   DashboardStats,
   Report,
@@ -13,6 +14,11 @@ import {
   calculateDashboardStatsFromReports,
   normalizeDashboardStats,
 } from '../utils/reportStats'
+import {
+  extractResponseData,
+  extractResponseMessage,
+  extractResponsePagination,
+} from '../utils/apiResponse'
 
 interface ReportApiModel {
   id: string
@@ -29,26 +35,10 @@ interface ReportApiModel {
   assignedAuth?: string | null
 }
 
-interface ReportResponse {
-  success?: boolean
-  message?: string
-  data?: ReportApiModel
-}
-
-interface PaginatedReportsResponse {
-  success?: boolean
-  data?: ReportApiModel[]
-  pagination?: ReportsPagination
-}
-
-interface ReviewActionResponse {
-  success?: boolean
-  message?: string
-  data?: {
-    id: string
-    status: ReportStatus
-    reviewComment?: string | null
-  }
+interface ReviewActionData {
+  id: string
+  status: ReportStatus
+  reviewComment?: string | null
 }
 
 interface ReportsResult {
@@ -65,6 +55,7 @@ interface UpdateReportPayload {
   assignedAuth?: string
   description?: string
   reviewComment?: string
+  rejectionReason?: string
 }
 
 const DEFAULT_REJECT_COMMENT = 'تم رفض البلاغ من الجهة المختصة.'
@@ -74,9 +65,119 @@ const SUMMARY_ENDPOINTS = [
   '/reports/stats',
   '/reports/dashboard-summary',
 ]
+const REPORT_TYPE_CODES: ReportTypeCode[] = [
+  'pothole',
+  'garbage',
+  'broken_cable_electric',
+  'broken_cable_telecom',
+  'streetlight',
+  'sewage',
+  'water_leak',
+  'gas_leak',
+  'traffic_signal',
+  'sidewalk_damage',
+  'fallen_tree',
+  'road_obstruction',
+  'manhole_cover',
+  'transformer',
+  'other',
+]
 
 const isObject = (value: unknown): value is UnknownObject => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+const isReportTypeCode = (value: unknown): value is ReportTypeCode => {
+  return (
+    typeof value === 'string' &&
+    REPORT_TYPE_CODES.includes(value as ReportTypeCode)
+  )
+}
+
+const toNonEmptyString = (value: unknown): string | null => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || null
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  return null
+}
+
+const pickStringField = (source: UnknownObject, keys: string[]): string | null => {
+  for (const key of keys) {
+    const value = toNonEmptyString(source[key])
+
+    if (value) {
+      return value
+    }
+  }
+
+  return null
+}
+
+const extractAssignedAuthorityId = (raw: ReportApiModel): string | null => {
+  const source = raw as unknown as UnknownObject
+
+  const directField = pickStringField(source, [
+    'assignedAuth',
+    'assignedTo',
+    'assigned_to',
+    'authority',
+    'authorityName',
+    'authority_name',
+    'assignedAuthorityId',
+    'assigned_authority_id',
+    'authorityId',
+    'authority_id',
+  ])
+
+  if (directField) {
+    return directField
+  }
+
+  const assignedAuthority = source.assignedAuthority
+  if (isObject(assignedAuthority)) {
+    const nestedField = pickStringField(assignedAuthority, [
+      'id',
+      '_id',
+      'authorityId',
+      'authority_id',
+      'authorityCode',
+      'authority_code',
+      'name',
+      'displayName',
+      'display_name',
+    ])
+
+    if (nestedField) {
+      return nestedField
+    }
+  }
+
+  const assignedAuthObject = source.assignedAuth
+  if (isObject(assignedAuthObject)) {
+    const nestedField = pickStringField(assignedAuthObject, [
+      'id',
+      '_id',
+      'authorityId',
+      'authority_id',
+      'authorityCode',
+      'authority_code',
+      'name',
+      'displayName',
+      'display_name',
+    ])
+
+    if (nestedField) {
+      return nestedField
+    }
+  }
+
+  return null
 }
 
 const toNumber = (value: unknown): number | null => {
@@ -145,13 +246,20 @@ const normalizeSummarySource = (source: UnknownObject): DashboardStats | null =>
     'closed',
   ])
 
+  const rejected = pickNumericField(source, [
+    'rejected',
+    'declined',
+    'discarded',
+  ])
+
   if (
     total === null ||
     aiReview === null ||
     humanReview === null ||
     pending === null ||
     inProgress === null ||
-    resolved === null
+    resolved === null ||
+    rejected === null
   ) {
     return null
   }
@@ -163,6 +271,7 @@ const normalizeSummarySource = (source: UnknownObject): DashboardStats | null =>
     pending,
     inProgress,
     resolved,
+    rejected,
   })
 }
 
@@ -210,11 +319,17 @@ const extractSummaryFromPayload = (payload: unknown): DashboardStats | null => {
 }
 
 const normalizeReport = (raw: ReportApiModel): Report => {
+  const normalizedType = isReportTypeCode(raw.type)
+    ? raw.type
+    : raw.type
+      ? 'other'
+      : null
+
   return {
     id: raw.id,
     description: raw.description,
     imageUrl: raw.imageUrl,
-    type: raw.type ?? null,
+    type: normalizedType,
     typeAr: raw.typeAr ?? null,
     priority: raw.priority,
     priorityReasonAr: raw.priorityReasonAr ?? null,
@@ -222,27 +337,29 @@ const normalizeReport = (raw: ReportApiModel): Report => {
     reviewComment: raw.reviewComment ?? null,
     location: raw.location ?? null,
     createdAt: raw.createdAt,
-    assignedAuth: raw.assignedAuth ?? null,
+    assignedAuth: extractAssignedAuthorityId(raw),
   }
 }
 
+const hasReportIdentity = (value: unknown): value is ReportApiModel => {
+  return isObject(value) && typeof value.id === 'string'
+}
+
 const listReports = async (query?: ReportsQuery): Promise<ReportsResult> => {
-  const response = await apiClient.get<PaginatedReportsResponse | ReportApiModel[]>('/reports', {
+  const response = await apiClient.get<ApiEnvelope<ReportApiModel[]> | ReportApiModel[]>('/reports', {
     params: query,
   })
 
-  if (Array.isArray(response.data)) {
-    return {
-      reports: response.data.map(normalizeReport),
-      pagination: null,
-    }
-  }
-
-  const rawList = response.data.data ?? []
+  const payload = extractResponseData<ReportApiModel[] | ReportApiModel>(response.data)
+  const rawList = Array.isArray(payload)
+    ? payload
+    : payload
+      ? [payload]
+      : []
 
   return {
     reports: rawList.map(normalizeReport),
-    pagination: response.data.pagination ?? null,
+    pagination: extractResponsePagination<ReportsPagination>(response.data) ?? null,
   }
 }
 
@@ -306,46 +423,44 @@ const getAuthorityReportsStats = async (): Promise<DashboardStats> => {
 }
 
 const getReportById = async (id: string): Promise<Report> => {
-  const response = await apiClient.get<ReportResponse | ReportApiModel>(`/reports/${id}`)
+  const response = await apiClient.get<ApiEnvelope<ReportApiModel> | ReportApiModel>(`/reports/${id}`)
+  const reportPayload = extractResponseData<ReportApiModel>(response.data)
 
-  if ('id' in response.data) {
-    return normalizeReport(response.data)
+  if (reportPayload && hasReportIdentity(reportPayload)) {
+    return normalizeReport(reportPayload)
   }
 
-  if (!response.data.data) {
-    throw new Error('تعذر تحميل تفاصيل البلاغ.')
-  }
-
-  return normalizeReport(response.data.data)
+  throw new Error(extractResponseMessage(response.data) ?? 'تعذر تحميل تفاصيل البلاغ.')
 }
 
-const acceptReport = async (id: string): Promise<ReviewActionResponse['data']> => {
-  const response = await apiClient.patch<ReviewActionResponse>(`/reports/${id}/accept`)
-  return response.data.data
+const acceptReport = async (id: string): Promise<ReviewActionData | null> => {
+  const response = await apiClient.patch<ApiEnvelope<ReviewActionData>>(`/reports/${id}/accept`)
+  return extractResponseData<ReviewActionData>(response.data)
 }
 
 const rejectReport = async (
   id: string,
   comment: string = DEFAULT_REJECT_COMMENT,
-): Promise<ReviewActionResponse['data']> => {
-  const response = await apiClient.patch<ReviewActionResponse>(`/reports/${id}/reject`, {
+): Promise<ReviewActionData | null> => {
+  const response = await apiClient.patch<ApiEnvelope<ReviewActionData>>(`/reports/${id}/reject`, {
     comment,
   })
 
-  return response.data.data
+  return extractResponseData<ReviewActionData>(response.data)
 }
 
 const updateReport = async (
   id: string,
   payload: UpdateReportPayload,
 ): Promise<Report | null> => {
-  const response = await apiClient.patch<ReportResponse>(`/reports/${id}`, payload)
+  const response = await apiClient.patch<ApiEnvelope<ReportApiModel>>(`/reports/${id}`, payload)
+  const reportPayload = extractResponseData<ReportApiModel>(response.data)
 
-  if (!response.data.data) {
+  if (!reportPayload || !hasReportIdentity(reportPayload)) {
     return null
   }
 
-  return normalizeReport(response.data.data)
+  return normalizeReport(reportPayload)
 }
 
 const reportService = {

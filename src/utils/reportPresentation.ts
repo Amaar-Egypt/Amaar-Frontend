@@ -1,13 +1,40 @@
 import type { Report, ReportsFilterTab, ReportPriority, ReportStatus, ReportTypeCode } from '../types/report'
+import type { UserRole } from '../types/auth'
 
-export const reportFilterTabs: Array<{ key: ReportsFilterTab; label: string }> = [
+export interface ReportFilterTabOption {
+  key: ReportsFilterTab
+  label: string
+}
+
+const adminReportFilterTabs: ReportFilterTabOption[] = [
   { key: 'all', label: 'الكل' },
   { key: 'ai_review', label: 'مراجعة الذكاء' },
   { key: 'human_review', label: 'مراجعة بشرية' },
   { key: 'pending', label: 'جاهز للتنفيذ' },
   { key: 'in_progress', label: 'قيد التنفيذ' },
   { key: 'resolved', label: 'مكتمل' },
+  { key: 'rejected', label: 'مرفوض' },
 ]
+
+const authorityReportFilterTabs: ReportFilterTabOption[] = [
+  { key: 'all', label: 'الكل' },
+  { key: 'ai_review', label: 'مراجعة الذكاء' },
+  { key: 'human_review', label: 'بانتظار مراجعة الإدارة' },
+  { key: 'pending', label: 'جاهز للتنفيذ' },
+  { key: 'in_progress', label: 'قيد التنفيذ' },
+  { key: 'resolved', label: 'مكتمل' },
+  { key: 'rejected', label: 'مرفوض' },
+]
+
+export const getReportFilterTabs = (
+  role: UserRole | null | undefined,
+): ReportFilterTabOption[] => {
+  if (role === 'authority') {
+    return authorityReportFilterTabs
+  }
+
+  return adminReportFilterTabs
+}
 
 const priorityLabelMap: Record<ReportPriority, string> = {
   critical: 'عالية جدًا',
@@ -65,11 +92,21 @@ const statusLabelMap: Record<ReportStatus, string> = {
   pending: 'معتمد وجاهز للتنفيذ',
   in_progress: 'قيد التنفيذ',
   resolved: 'مكتمل',
+  rejected: 'مرفوض',
 }
 
 export const isPendingActionStatus = (status: ReportStatus) => status === 'ai_review'
 
-export const getReportStatusLabel = (status: ReportStatus) => statusLabelMap[status]
+export const getReportStatusLabel = (
+  status: ReportStatus,
+  role?: UserRole | null,
+) => {
+  if (status === 'human_review' && role === 'authority') {
+    return 'بانتظار مراجعة الإدارة'
+  }
+
+  return statusLabelMap[status]
+}
 
 export const getPriorityLabel = (priority: ReportPriority) => priorityLabelMap[priority]
 
@@ -79,7 +116,7 @@ export const getReportTypeLabel = (report: Report) => {
   }
 
   if (report.type) {
-    return typeArabicMap[report.type]
+    return typeArabicMap[report.type] ?? typeArabicMap.other
   }
 
   return 'غير محدد'
