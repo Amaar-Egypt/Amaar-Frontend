@@ -1,4 +1,3 @@
-import { AxiosError } from 'axios'
 import { useCallback, useRef, useState } from 'react'
 import reportService from '../services/reportService'
 import type {
@@ -10,45 +9,93 @@ import type {
   ReportTypeCode,
 } from '../types/report'
 import {
-  applyDashboardStatsTransition,
+  calculateDashboardStatsFromReports,
   createEmptyDashboardStats,
 } from '../utils/reportStats'
-
-interface BackendErrorResponse {
-  message?: string
-  error?: string
-}
+import { getApiErrorMessage } from '../utils/apiResponse'
+import type { AuthUser } from '../types/auth'
 
 const DEFAULT_ERROR_MESSAGE = 'حدث خطأ أثناء تحميل البلاغات. حاول مرة أخرى.'
 const DEFAULT_ACTION_ERROR_MESSAGE = 'تعذر تنفيذ الإجراء على البلاغ.'
+const DEFAULT_HUMAN_REVIEW_REJECT_COMMENT = 'تم رفض البلاغ بعد المراجعة البشرية.'
+const DEFAULT_PENDING_REJECT_REASON_ERROR = 'سبب رفض التنفيذ مطلوب.'
 const DEFAULT_PAGE_SIZE = 10
+const isReportVisibilityDebugEnabled =
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_REPORT_VISIBILITY === 'true'
 
 type ReportActionKind =
   | 'accept-ai'
   | 'reject-ai'
-  | 'manual-approve'
+  | 'reject-execution'
+  | 'human-update'
+  | 'human-approve'
+  | 'human-reject'
   | 'start-work'
-  | 'escalate'
   | 'resolve'
 
 interface StatusUpdatePayload {
-  status: ReportStatus
+  status?: ReportStatus
   type?: ReportTypeCode
   priority?: ReportPriority
+  assignedAuth?: string
   reviewComment?: string
+  rejectionReason?: string
 }
 
-const getErrorMessage = (error: unknown, fallback: string): string => {
-  if (error instanceof AxiosError) {
-    const responseData = error.response?.data as BackendErrorResponse | undefined
-    return responseData?.message ?? responseData?.error ?? fallback
+interface FetchReportsOptions {
+  isManualRefresh?: boolean
+  refreshSummary?: boolean
+}
+
+interface UseAuthorityReportsOptions {
+  viewer: AuthUser | null
+}
+
+const AUTHORITY_VISIBLE_STATUSES: ReportStatus[] = [
+  'ai_review',
+  'human_review',
+  'pending',
+  'in_progress',
+  'resolved',
+  'rejected',
+]
+
+const normalizeIdentifier = (value: string | null | undefined) => {
+  if (!value) {
+    return null
   }
 
-  if (error instanceof Error && error.message) {
-    return error.message
+  const normalized = value.trim().toLowerCase()
+  return normalized || null
+}
+
+const filterReportsForViewer = (allReports: Report[], viewer: AuthUser | null) => {
+  if (!viewer || viewer.role !== 'authority') {
+    return allReports
   }
 
-  return fallback
+  const viewerAuthorityId = normalizeIdentifier(viewer.authorityId)
+  const viewerUserId = normalizeIdentifier(viewer.id)
+
+  const allowedAuthorityKey = viewerAuthorityId ?? viewerUserId
+
+  if (!allowedAuthorityKey) {
+    return []
+  }
+
+  return allReports.filter((report) => {
+    if (!AUTHORITY_VISIBLE_STATUSES.includes(report.status)) {
+      return false
+    }
+
+    const reportAuthorityKey = normalizeIdentifier(report.assignedAuth)
+
+    if (!reportAuthorityKey) {
+      return false
+    }
+
+    return reportAuthorityKey === allowedAuthorityKey
+  })
 }
 
 const applyReportTransition = (
@@ -72,12 +119,7 @@ const applyReportTransition = (
   }
 }
 
-interface FetchReportsOptions {
-  isManualRefresh?: boolean
-  refreshSummary?: boolean
-}
-
-const useAuthorityReports = () => {
+const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   const [reports, setReports] = useState<Report[]>([])
   const [counts, setCounts] = useState<DashboardStats>(() => createEmptyDashboardStats())
   const [isLoading, setIsLoading] = useState(false)
@@ -92,16 +134,14 @@ const useAuthorityReports = () => {
   const syncReports = useCallback((nextReports: Report[]) => {
     reportsRef.current = nextReports
     setReports(nextReports)
+    setCounts(calculateDashboardStatsFromReports(nextReports))
   }, [])
 
   const refreshCounts = useCallback(async () => {
     setIsCountsLoading(true)
 
     try {
-      const summary = await reportService.getAuthorityReportsStats()
-      setCounts(summary)
-    } catch {
-      // Keep last known counts if summary request fails.
+      setCounts(calculateDashboardStatsFromReports(reportsRef.current))
     } finally {
       setIsCountsLoading(false)
     }
@@ -118,22 +158,46 @@ const useAuthorityReports = () => {
 
     setErrorMessage(null)
 
-    if (refreshSummary) {
-      void refreshCounts()
-    }
-
     try {
-      // Keep all assigned reports in memory so filters are applied globally
-      // before any table pagination is calculated in the page layer.
+      // Keep reports in memory so role filters are applied globally
+      // before table pagination is calculated in the page layer.
       const allReports = await reportService.listAllAuthorityReports()
-      syncReports(allReports)
+      const roleAwareReports = filterReportsForViewer(allReports, viewer)
+
+      if (isReportVisibilityDebugEnabled) {
+        const reportsSample = allReports.slice(0, 5).map((report) => ({
+          id: report.id,
+          status: report.status,
+          assignedAuth: report.assignedAuth,
+        }))
+
+        const normalizedViewerAuthorityId = normalizeIdentifier(viewer?.authorityId)
+        const normalizedViewerUserId = normalizeIdentifier(viewer?.id)
+
+        console.log('[useAuthorityReports] visibility debug', {
+          viewerRole: viewer?.role ?? null,
+          viewerAuthorityId: viewer?.authorityId ?? null,
+          normalizedViewerAuthorityId,
+          normalizedViewerUserId,
+          appliedAuthorityKey: normalizedViewerAuthorityId ?? normalizedViewerUserId,
+          totalFetchedReports: allReports.length,
+          totalVisibleReports: roleAwareReports.length,
+          reportsSample,
+        })
+      }
+
+      syncReports(roleAwareReports)
+
+      if (refreshSummary) {
+        setCounts(calculateDashboardStatsFromReports(roleAwareReports))
+      }
     } catch (error) {
-      setErrorMessage(getErrorMessage(error, DEFAULT_ERROR_MESSAGE))
+      setErrorMessage(getApiErrorMessage(error, DEFAULT_ERROR_MESSAGE))
     } finally {
       setIsLoading(false)
       setIsRefreshing(false)
     }
-  }, [refreshCounts, syncReports])
+  }, [syncReports, viewer])
 
   const getTabReports = useCallback(
     (tab: ReportsFilterTab) => {
@@ -160,11 +224,9 @@ const useAuthorityReports = () => {
     fallbackStatus: ReportStatus
     fallbackPatch?: Partial<Report>
     fallbackReviewComment?: string
-  }) => {
+  }): Promise<boolean> => {
     setActionErrorMessage(null)
     setActionLoadingById((prev) => ({ ...prev, [reportId]: action }))
-
-    const currentReport = reportsRef.current.find((report) => report.id === reportId)
 
     try {
       const updatedReport = await reportService.updateReport(reportId, payload)
@@ -191,19 +253,11 @@ const useAuthorityReports = () => {
         )
       }
 
-      if (currentReport) {
-        setCounts((previousCounts) =>
-          previousCounts.total > 0
-            ? applyDashboardStatsTransition(
-                previousCounts,
-                currentReport.status,
-                nextStatus,
-              )
-            : previousCounts,
-        )
-      }
+      return true
     } catch (error) {
-      setActionErrorMessage(getErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+
+      return false
     } finally {
       setActionLoadingById((prev) => {
         const next = { ...prev }
@@ -219,7 +273,6 @@ const useAuthorityReports = () => {
 
     try {
       const response = await reportService.acceptReport(reportId)
-      const currentReport = reportsRef.current.find((report) => report.id === reportId)
       const nextStatus = response?.status ?? 'pending'
 
       syncReports(
@@ -229,20 +282,8 @@ const useAuthorityReports = () => {
             : report,
         ),
       )
-
-      if (currentReport) {
-        setCounts((previousCounts) =>
-          previousCounts.total > 0
-            ? applyDashboardStatsTransition(
-                previousCounts,
-                currentReport.status,
-                nextStatus,
-              )
-            : previousCounts,
-        )
-      }
     } catch (error) {
-      setActionErrorMessage(getErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
     } finally {
       setActionLoadingById((prev) => {
         const next = { ...prev }
@@ -258,7 +299,6 @@ const useAuthorityReports = () => {
 
     try {
       const response = await reportService.rejectReport(reportId)
-      const currentReport = reportsRef.current.find((report) => report.id === reportId)
       const nextStatus = response?.status ?? 'human_review'
 
       syncReports(
@@ -272,20 +312,8 @@ const useAuthorityReports = () => {
             : report,
         ),
       )
-
-      if (currentReport) {
-        setCounts((previousCounts) =>
-          previousCounts.total > 0
-            ? applyDashboardStatsTransition(
-                previousCounts,
-                currentReport.status,
-                nextStatus,
-              )
-            : previousCounts,
-        )
-      }
     } catch (error) {
-      setActionErrorMessage(getErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
     } finally {
       setActionLoadingById((prev) => {
         const next = { ...prev }
@@ -295,28 +323,86 @@ const useAuthorityReports = () => {
     }
   }, [syncReports])
 
-  const manualApproveReport = useCallback(async ({
+  const updateHumanReviewReport = useCallback(async ({
     reportId,
     type,
     priority,
+    assignedAuth,
   }: {
     reportId: string
     type: ReportTypeCode
     priority: ReportPriority
+    assignedAuth?: string
   }) => {
+    const normalizedAssignedAuth = assignedAuth?.trim()
+
     await performStatusUpdate({
       reportId,
-      action: 'manual-approve',
+      action: 'human-update',
+      payload: {
+        status: 'human_review',
+        type,
+        priority,
+        assignedAuth: normalizedAssignedAuth,
+      },
+      fallbackStatus: 'human_review',
+      fallbackPatch: {
+        type,
+        priority,
+        assignedAuth: normalizedAssignedAuth ?? null,
+      },
+    })
+  }, [performStatusUpdate])
+
+  const approveHumanReviewReport = useCallback(async ({
+    reportId,
+    type,
+    priority,
+    assignedAuth,
+  }: {
+    reportId: string
+    type: ReportTypeCode
+    priority: ReportPriority
+    assignedAuth?: string
+  }) => {
+    const normalizedAssignedAuth = assignedAuth?.trim()
+
+    await performStatusUpdate({
+      reportId,
+      action: 'human-approve',
       payload: {
         status: 'pending',
         type,
         priority,
+        assignedAuth: normalizedAssignedAuth,
       },
       fallbackStatus: 'pending',
       fallbackPatch: {
         type,
         priority,
+        assignedAuth: normalizedAssignedAuth ?? null,
       },
+    })
+  }, [performStatusUpdate])
+
+  const rejectHumanReviewReport = useCallback(async ({
+    reportId,
+    comment,
+  }: {
+    reportId: string
+    comment?: string
+  }) => {
+    const normalizedComment = comment?.trim() || DEFAULT_HUMAN_REVIEW_REJECT_COMMENT
+
+    await performStatusUpdate({
+      reportId,
+      action: 'human-reject',
+      payload: {
+        status: 'rejected',
+        reviewComment: normalizedComment,
+      },
+      fallbackStatus: 'rejected',
+      fallbackReviewComment: normalizedComment,
     })
   }, [performStatusUpdate])
 
@@ -331,24 +417,30 @@ const useAuthorityReports = () => {
     })
   }, [performStatusUpdate])
 
-  const escalateReport = useCallback(async ({
+  const rejectPendingExecutionReport = useCallback(async ({
     reportId,
-    comment,
+    reason,
   }: {
     reportId: string
-    comment: string
+    reason: string
   }) => {
-    const normalizedComment = comment.trim()
+    const normalizedReason = reason.trim()
 
-    await performStatusUpdate({
+    if (!normalizedReason) {
+      setActionErrorMessage(DEFAULT_PENDING_REJECT_REASON_ERROR)
+      return false
+    }
+
+    return performStatusUpdate({
       reportId,
-      action: 'escalate',
+      action: 'reject-execution',
       payload: {
         status: 'human_review',
-        reviewComment: normalizedComment,
+        reviewComment: normalizedReason,
+        rejectionReason: normalizedReason,
       },
       fallbackStatus: 'human_review',
-      fallbackReviewComment: normalizedComment,
+      fallbackReviewComment: normalizedReason,
     })
   }, [performStatusUpdate])
 
@@ -381,9 +473,11 @@ const useAuthorityReports = () => {
     refreshCounts,
     acceptReport,
     rejectReport,
-    manualApproveReport,
+    updateHumanReviewReport,
+    approveHumanReviewReport,
+    rejectHumanReviewReport,
     startWorkOnReport,
-    escalateReport,
+    rejectPendingExecutionReport,
     resolveReport,
     isLoading,
     isRefreshing,

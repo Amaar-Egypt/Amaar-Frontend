@@ -12,13 +12,17 @@ import useAuth from '../../hooks/useAuth'
 import reportService from '../../services/reportService'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
 import type { Report, ReportsFilterTab } from '../../types/report'
-import { getLocationLabel, getReportTypeLabel } from '../../utils/reportPresentation'
+import {
+  getLocationLabel,
+  getReportFilterTabs,
+  getReportTypeLabel,
+} from '../../utils/reportPresentation'
 
 const CLIENT_PAGE_SIZE = 8
 
 const DashboardPage = () => {
   const navigate = useNavigate()
-  const { clearSession, user } = useAuth()
+  const { logout, user } = useAuth()
   const [activeSection, setActiveSection] = useState<DashboardSection>('home')
   const [activeFilterTab, setActiveFilterTab] = useState<ReportsFilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -28,15 +32,20 @@ const DashboardPage = () => {
   const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null)
   const detailsRequestRef = useRef(0)
 
+  const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
+  const isAuthorityViewer = user?.role === 'authority'
+
   const {
     counts,
     getTabReports,
     fetchReports,
     acceptReport,
     rejectReport,
-    manualApproveReport,
+    updateHumanReviewReport,
+    approveHumanReviewReport,
+    rejectHumanReviewReport,
     startWorkOnReport,
-    escalateReport,
+    rejectPendingExecutionReport,
     resolveReport,
     isLoading,
     isRefreshing,
@@ -44,7 +53,7 @@ const DashboardPage = () => {
     errorMessage,
     actionErrorMessage,
     actionLoadingById,
-  } = useAuthorityReports()
+  } = useAuthorityReports({ viewer: user ?? null })
 
   useEffect(() => {
     fetchReports({ refreshSummary: true })
@@ -54,8 +63,14 @@ const DashboardPage = () => {
     setClientPage(1)
   }, [activeFilterTab, searchQuery])
 
-  const handleLogout = () => {
-    clearSession()
+  useEffect(() => {
+    if (!filterTabs.some((tab) => tab.key === activeFilterTab)) {
+      setActiveFilterTab('all')
+    }
+  }, [activeFilterTab, filterTabs])
+
+  const handleLogout = async () => {
+    await logout()
     navigate('/login', { replace: true })
   }
 
@@ -183,13 +198,21 @@ const DashboardPage = () => {
 
     return (
       <>
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
           <StatCard title="إجمالي البلاغات" value={counts.total} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="مراجعة الذكاء" value={counts.aiReview} tone="warning" isLoading={isCountsLoading} />
-          <StatCard title="مراجعة بشرية" value={counts.humanReview} tone="danger" isLoading={isCountsLoading} />
+            {!isAuthorityViewer ? (
+              <StatCard
+                title="مراجعة بشرية"
+                value={counts.humanReview}
+                tone="danger"
+                isLoading={isCountsLoading}
+              />
+            ) : null}
           <StatCard title="جاهز للتنفيذ" value={counts.pending} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="قيد التنفيذ" value={counts.inProgress} tone="warning" isLoading={isCountsLoading} />
           <StatCard title="مكتمل" value={counts.resolved} tone="success" isLoading={isCountsLoading} />
+          <StatCard title="مرفوض" value={counts.rejected} tone="danger" isLoading={isCountsLoading} />
         </section>
 
         <section className="space-y-3 rounded-3xl border border-slate-200/70 bg-white/72 p-4 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/68 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)] sm:p-5">
@@ -209,7 +232,7 @@ const DashboardPage = () => {
             </button>
           </div>
 
-          <ReportsFilters activeTab={activeFilterTab} onChangeTab={setActiveFilterTab} />
+          <ReportsFilters activeTab={activeFilterTab} tabs={filterTabs} onChangeTab={setActiveFilterTab} />
 
           {errorMessage ? (
             <p dir="rtl" className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:border-rose-300/35 dark:bg-rose-500/12 dark:text-rose-200">
@@ -236,9 +259,11 @@ const DashboardPage = () => {
                 actionLoadingById={actionLoadingById}
                 onAccept={acceptReport}
                 onReject={rejectReport}
-                onManualApprove={manualApproveReport}
+                onHumanReviewUpdate={updateHumanReviewReport}
+                onHumanReviewApprove={approveHumanReviewReport}
+                onHumanReviewReject={rejectHumanReviewReport}
                 onStartWork={startWorkOnReport}
-                onEscalate={escalateReport}
+                onPendingReject={rejectPendingExecutionReport}
                 onResolve={resolveReport}
                 onRowClick={handleSelectReport}
               />
@@ -273,14 +298,6 @@ const DashboardPage = () => {
               onLogout={handleLogout}
             />
 
-            <section
-              dir="rtl"
-              className="rounded-3xl border border-slate-200/70 bg-white/72 p-4 shadow-[0_18px_42px_rgba(15,23,42,0.09)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/68 dark:shadow-[0_24px_62px_rgba(2,6,23,0.48)]"
-            >
-              <h1 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 sm:text-2xl">لوحة الجهات المختصة</h1>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">الرئيسية هي الصفحة الافتراضية لإدارة البلاغات المسندة ومتابعة حالة المراجعة.</p>
-            </section>
-
             {renderSectionContent()}
           </main>
 
@@ -288,6 +305,7 @@ const DashboardPage = () => {
             activeSection={activeSection}
             onSelectSection={setActiveSection}
             selectedReport={selectedReport}
+            viewerRole={user?.role ?? null}
             isDetailsLoading={isDetailsLoading}
             detailsErrorMessage={detailsErrorMessage}
           />

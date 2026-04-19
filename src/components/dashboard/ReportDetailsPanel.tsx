@@ -1,4 +1,5 @@
 import type { Report } from '../../types/report'
+import type { UserRole } from '../../types/auth'
 import {
   formatArabicDate,
   getReportStatusLabel,
@@ -7,6 +8,7 @@ import {
 
 interface ReportDetailsPanelProps {
   report: Report | null
+  viewerRole?: UserRole | null
   isLoading?: boolean
   errorMessage?: string | null
   onViewFullDetails?: (report: Report) => void
@@ -19,6 +21,10 @@ const getStatusTone = (status: Report['status']) => {
 
   if (status === 'human_review') {
     return 'border-rose-300/70 bg-rose-500/12 text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200'
+  }
+
+  if (status === 'rejected') {
+    return 'border-slate-300/70 bg-slate-500/12 text-slate-700 dark:border-slate-500/40 dark:bg-slate-500/15 dark:text-slate-200'
   }
 
   return 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200'
@@ -46,6 +52,7 @@ const getAiReviewScore = (report: Report) => {
 
 const ReportDetailsPanel = ({
   report,
+  viewerRole = null,
   isLoading = false,
   errorMessage = null,
   onViewFullDetails,
@@ -123,7 +130,7 @@ const ReportDetailsPanel = ({
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getStatusTone(report.status)}`}>
-          {getReportStatusLabel(report.status)}
+          {getReportStatusLabel(report.status, viewerRole)}
         </span>
         <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
           {formatArabicDate(report.createdAt)}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Report } from '../../types/report'
 import type { UserRole } from '../../types/auth'
+import ExecutionRejectModal from './ExecutionRejectModal'
 import {
   formatArabicDate,
   getPriorityLabel,
@@ -18,13 +19,21 @@ interface ReportsTableProps {
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
   onReject: (reportId: string) => void
-  onManualApprove: (params: {
+  onHumanReviewUpdate: (params: {
     reportId: string
     type: ReportTypeCode
     priority: ReportPriority
+    assignedAuth?: string
   }) => void
+  onHumanReviewApprove: (params: {
+    reportId: string
+    type: ReportTypeCode
+    priority: ReportPriority
+    assignedAuth?: string
+  }) => void
+  onHumanReviewReject: (params: { reportId: string; comment?: string }) => void
   onStartWork: (reportId: string) => void
-  onEscalate: (params: { reportId: string; comment: string }) => void
+  onPendingReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onResolve: (reportId: string) => void
   onRowClick?: (report: Report) => void
 }
@@ -50,6 +59,10 @@ const getStatusClassName = (status: Report['status']) => {
     return 'border-rose-300/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/45 dark:bg-rose-500/18 dark:text-rose-200'
   }
 
+  if (status === 'rejected') {
+    return 'border-slate-300/70 bg-slate-500/15 text-slate-700 dark:border-slate-500/45 dark:bg-slate-500/20 dark:text-slate-200'
+  }
+
   return 'border-emerald-300/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-500/18 dark:text-emerald-200'
 }
 
@@ -60,35 +73,68 @@ const ReportsTable = ({
   actionLoadingById,
   onAccept,
   onReject,
-  onManualApprove,
+  onHumanReviewUpdate,
+  onHumanReviewApprove,
+  onHumanReviewReject,
   onStartWork,
-  onEscalate,
+  onPendingReject,
   onResolve,
   onRowClick,
 }: ReportsTableProps) => {
-  const canReviewAi = viewerRole === 'admin' || viewerRole === 'authority'
-  const canManualClassify = viewerRole === 'admin'
-  const canWorkOnAssignedReports = viewerRole === 'authority'
+  const isAuthorityViewer = viewerRole === 'authority'
+  const isAdminViewer = viewerRole === 'admin'
+  const canHandleAiReview = isAuthorityViewer || isAdminViewer
 
-  const [manualValuesById, setManualValuesById] = useState<Record<string, {
+  const [humanReviewValuesById, setHumanReviewValuesById] = useState<Record<string, {
     type: ReportTypeCode
     priority: ReportPriority
+    assignedAuth: string
   }>>({})
-  const [escalationCommentById, setEscalationCommentById] = useState<Record<string, string>>({})
+  const [humanReviewRejectCommentById, setHumanReviewRejectCommentById] = useState<Record<string, string>>({})
+  const [pendingRejectReportId, setPendingRejectReportId] = useState<string | null>(null)
 
-  const getManualDraft = useMemo(() => {
+  const getHumanReviewDraft = useMemo(() => {
     return (report: Report) => {
-      return manualValuesById[report.id] ?? {
+      return humanReviewValuesById[report.id] ?? {
         type: report.type ?? 'other',
         priority: report.priority,
+        assignedAuth: report.assignedAuth ?? '',
       }
     }
-  }, [manualValuesById])
+  }, [humanReviewValuesById])
+
+  const isPendingRejectSubmitting = Boolean(
+    pendingRejectReportId && actionLoadingById[pendingRejectReportId] === 'reject-execution',
+  )
+
+  const closePendingRejectModal = () => {
+    if (isPendingRejectSubmitting) {
+      return
+    }
+
+    setPendingRejectReportId(null)
+  }
+
+  const handleConfirmPendingReject = async (reason: string) => {
+    if (!pendingRejectReportId) {
+      return
+    }
+
+    const didSucceed = await Promise.resolve(onPendingReject({
+      reportId: pendingRejectReportId,
+      reason,
+    }))
+
+    if (didSucceed) {
+      setPendingRejectReportId(null)
+    }
+  }
 
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-200/70 bg-white/75 shadow-[0_20px_46px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)]">
-      <div className="overflow-x-auto">
-        <table dir="rtl" className="min-w-full border-collapse text-sm">
+    <>
+      <div className="overflow-hidden rounded-3xl border border-slate-200/70 bg-white/75 shadow-[0_20px_46px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)]">
+        <div className="overflow-x-auto">
+          <table dir="rtl" className="min-w-full border-collapse text-sm">
           <thead className="bg-slate-100/75 text-slate-700 dark:bg-slate-950/45 dark:text-slate-200">
             <tr>
               <th className="px-4 py-3 text-right font-bold">صورة</th>
@@ -114,8 +160,8 @@ const ReportsTable = ({
               reports.map((report) => {
                 const activeAction = actionLoadingById[report.id]
                 const isSelected = selectedReportId === report.id
-                const manualDraft = getManualDraft(report)
-                const escalationComment = escalationCommentById[report.id] ?? ''
+                const humanReviewDraft = getHumanReviewDraft(report)
+                const rejectComment = humanReviewRejectCommentById[report.id] ?? ''
 
                 return (
                   <tr
@@ -159,197 +205,241 @@ const ReportsTable = ({
                     <td className="px-4 py-3 text-xs sm:text-sm">{formatArabicDate(report.createdAt)}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getStatusClassName(report.status)}`}>
-                        {getReportStatusLabel(report.status)}
+                        {getReportStatusLabel(report.status, viewerRole)}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       {report.status === 'ai_review' ? (
                         <div className="flex min-w-[220px] flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            disabled={Boolean(activeAction) || !canReviewAi}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onAccept(report.id)
-                            }}
-                            className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                          >
-                            {activeAction === 'accept-ai' ? 'جارٍ اعتماد الذكاء...' : 'اعتماد الذكاء'}
-                          </button>
+                          {canHandleAiReview ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={Boolean(activeAction)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onAccept(report.id)
+                                }}
+                                className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+                              >
+                                {activeAction === 'accept-ai' ? 'جارٍ اعتماد الذكاء...' : 'اعتماد الذكاء'}
+                              </button>
 
-                          <button
-                            type="button"
-                            disabled={Boolean(activeAction) || !canReviewAi}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onReject(report.id)
-                            }}
-                            className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
-                          >
-                            {activeAction === 'reject-ai' ? 'جارٍ التحويل لبشري...' : 'رفض الذكاء'}
-                          </button>
-
-                          {!canReviewAi ? (
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                              هذه المرحلة متاحة للإدارة أو الجهة المختصة المسندة.
-                            </span>
-                          ) : null}
+                              <button
+                                type="button"
+                                disabled={Boolean(activeAction)}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onReject(report.id)
+                                }}
+                                className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
+                              >
+                                {activeAction === 'reject-ai' ? 'جارٍ التحويل لبشري...' : 'رفض الذكاء'}
+                              </button>
+                            </>
+                            ) : null}
                         </div>
                       ) : null}
 
                       {report.status === 'human_review' ? (
-                        <div
-                          className="min-w-[230px] space-y-2"
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          <select
-                            value={manualDraft.type}
-                            disabled={Boolean(activeAction) || !canManualClassify}
-                            onChange={(event) => {
-                              const nextType = event.target.value as ReportTypeCode
-                              setManualValuesById((prev) => ({
-                                ...prev,
-                                [report.id]: {
-                                  ...manualDraft,
-                                  type: nextType,
-                                },
-                              }))
-                            }}
-                            className="w-full rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
+                        isAdminViewer ? (
+                          <div
+                            className="min-w-[300px] space-y-2"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
                           >
-                            {reportTypeOptions.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-
-                          <div className="flex items-center gap-2">
                             <select
-                              value={manualDraft.priority}
-                              disabled={Boolean(activeAction) || !canManualClassify}
+                              value={humanReviewDraft.type}
+                              disabled={Boolean(activeAction)}
                               onChange={(event) => {
-                                const nextPriority = event.target.value as ReportPriority
-                                setManualValuesById((prev) => ({
+                                const nextType = event.target.value as ReportTypeCode
+                                setHumanReviewValuesById((prev) => ({
                                   ...prev,
                                   [report.id]: {
-                                    ...manualDraft,
-                                    priority: nextPriority,
+                                    ...humanReviewDraft,
+                                    type: nextType,
                                   },
                                 }))
                               }}
-                              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
+                              className="w-full rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
                             >
-                              {reportPriorityOptions.map((option) => (
+                              {reportTypeOptions.map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {option.label}
                                 </option>
                               ))}
                             </select>
 
-                            <button
-                              type="button"
-                              disabled={Boolean(activeAction) || !canManualClassify}
-                              onClick={() => onManualApprove({
-                                reportId: report.id,
-                                type: manualDraft.type,
-                                priority: manualDraft.priority,
-                              })}
-                              className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                            >
-                              {activeAction === 'manual-approve' ? 'جارٍ الاعتماد...' : 'اعتماد يدوي'}
-                            </button>
-                          </div>
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={humanReviewDraft.priority}
+                                disabled={Boolean(activeAction)}
+                                onChange={(event) => {
+                                  const nextPriority = event.target.value as ReportPriority
+                                  setHumanReviewValuesById((prev) => ({
+                                    ...prev,
+                                    [report.id]: {
+                                      ...humanReviewDraft,
+                                      priority: nextPriority,
+                                    },
+                                  }))
+                                }}
+                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
+                              >
+                                {reportPriorityOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
 
-                          {!canManualClassify ? (
+                              <input
+                                type="text"
+                                value={humanReviewDraft.assignedAuth}
+                                disabled={Boolean(activeAction)}
+                                onChange={(event) => {
+                                  setHumanReviewValuesById((prev) => ({
+                                    ...prev,
+                                    [report.id]: {
+                                      ...humanReviewDraft,
+                                      assignedAuth: event.target.value,
+                                    },
+                                  }))
+                                }}
+                                placeholder="معرّف الجهة"
+                                className="min-w-0 w-32 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
+                              />
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={Boolean(activeAction)}
+                                onClick={() => onHumanReviewUpdate({
+                                  reportId: report.id,
+                                  type: humanReviewDraft.type,
+                                  priority: humanReviewDraft.priority,
+                                  assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
+                                })}
+                                className="rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 disabled:opacity-65 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-200"
+                              >
+                                {activeAction === 'human-update' ? 'جارٍ تحديث المراجعة...' : 'تحديث المراجعة'}
+                              </button>
+
+                              <button
+                                type="button"
+                                disabled={Boolean(activeAction)}
+                                onClick={() => onHumanReviewApprove({
+                                  reportId: report.id,
+                                  type: humanReviewDraft.type,
+                                  priority: humanReviewDraft.priority,
+                                  assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
+                                })}
+                                className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+                              >
+                                {activeAction === 'human-approve' ? 'جارٍ الاعتماد النهائي...' : 'اعتماد نهائي'}
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={rejectComment}
+                                disabled={Boolean(activeAction)}
+                                onChange={(event) => {
+                                  setHumanReviewRejectCommentById((prev) => ({
+                                    ...prev,
+                                    [report.id]: event.target.value,
+                                  }))
+                                }}
+                                placeholder="سبب الرفض البشري (اختياري)"
+                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-rose-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
+                              />
+
+                              <button
+                                type="button"
+                                disabled={Boolean(activeAction)}
+                                onClick={() => onHumanReviewReject({
+                                  reportId: report.id,
+                                  comment: rejectComment.trim() || undefined,
+                                })}
+                                className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
+                              >
+                                {activeAction === 'human-reject' ? 'جارٍ رفض البلاغ...' : 'رفض البلاغ'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                              تم تحويل البلاغ للمراجعة البشرية
+                            </span>
                             <p className="text-xs text-slate-500 dark:text-slate-400">
-                              التصنيف اليدوي متاح للإدارة فقط.
+                              بانتظار مراجعة الإدارة.
                             </p>
-                          ) : null}
-                        </div>
+                          </div>
+                        )
                       ) : null}
 
                       {report.status === 'pending' ? (
-                        <div
-                          className="min-w-[230px] space-y-2"
-                          onClick={(event) => event.stopPropagation()}
-                          onKeyDown={(event) => event.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            disabled={Boolean(activeAction) || !canWorkOnAssignedReports}
-                            onClick={() => onStartWork(report.id)}
-                            className="w-full rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                          >
-                            {activeAction === 'start-work' ? 'جارٍ بدء التنفيذ...' : 'بدء التنفيذ'}
-                          </button>
-
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={escalationComment}
-                              disabled={Boolean(activeAction) || !canWorkOnAssignedReports}
-                              onChange={(event) => {
-                                setEscalationCommentById((prev) => ({
-                                  ...prev,
-                                  [report.id]: event.target.value,
-                                }))
-                              }}
-                                placeholder="سبب التحويل للمراجعة البشرية"
-                              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                            />
+                        isAuthorityViewer ? (
+                          <div className="flex min-w-[220px] flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              disabled={Boolean(activeAction) || !canWorkOnAssignedReports || !escalationComment.trim()}
-                              onClick={() => {
-                                const comment = escalationComment.trim()
-
-                                if (!comment) {
-                                  return
-                                }
-
-                                onEscalate({
-                                  reportId: report.id,
-                                  comment,
-                                })
-
-                                setEscalationCommentById((prev) => ({
-                                  ...prev,
-                                  [report.id]: '',
-                                }))
+                              disabled={Boolean(activeAction)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                onStartWork(report.id)
                               }}
-                              className="rounded-lg border border-amber-300/70 bg-amber-500/12 px-3 py-1 text-xs font-bold text-amber-700 transition hover:bg-amber-500/20 disabled:opacity-65 dark:border-amber-400/40 dark:bg-amber-500/15 dark:text-amber-200"
+                              className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
                             >
-                                {activeAction === 'escalate' ? 'جارٍ التحويل...' : 'تحويل'}
+                              {activeAction === 'start-work' ? 'جارٍ بدء التنفيذ...' : 'بدء التنفيذ'}
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={Boolean(activeAction)}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setPendingRejectReportId(report.id)
+                              }}
+                              className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
+                            >
+                              {activeAction === 'reject-execution' ? 'جارٍ التحويل للمراجعة...' : 'رفض التنفيذ'}
                             </button>
                           </div>
-
-                          {!canWorkOnAssignedReports ? (
-                            <p className="text-xs text-slate-500 dark:text-slate-400">
-                                التنفيذ والتحويل متاحان للجهة المختصة المسندة فقط.
-                            </p>
-                          ) : null}
-                        </div>
+                        ) : null
                       ) : null}
 
                       {report.status === 'in_progress' ? (
-                        <button
-                          type="button"
-                          disabled={Boolean(activeAction) || !canWorkOnAssignedReports}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onResolve(report.id)
-                          }}
-                          className="rounded-lg border border-indigo-300/70 bg-indigo-500/12 px-3 py-1 text-xs font-bold text-indigo-700 transition hover:bg-indigo-500/20 disabled:opacity-65 dark:border-indigo-400/40 dark:bg-indigo-500/15 dark:text-indigo-200"
-                        >
-                          {activeAction === 'resolve' ? 'جارٍ إغلاق البلاغ...' : 'إغلاق البلاغ'}
-                        </button>
+                        isAuthorityViewer ? (
+                          <button
+                            type="button"
+                            disabled={Boolean(activeAction)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onResolve(report.id)
+                            }}
+                            className="rounded-lg border border-indigo-300/70 bg-indigo-500/12 px-3 py-1 text-xs font-bold text-indigo-700 transition hover:bg-indigo-500/20 disabled:opacity-65 dark:border-indigo-400/40 dark:bg-indigo-500/15 dark:text-indigo-200"
+                          >
+                            {activeAction === 'resolve' ? 'جارٍ إغلاق البلاغ...' : 'إغلاق البلاغ'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            قيد التنفيذ لدى الجهة المختصة.
+                          </span>
+                        )
                       ) : null}
 
                       {report.status === 'resolved' ? (
                         <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                           مكتمل
+                        </span>
+                      ) : null}
+
+                      {report.status === 'rejected' ? (
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          مرفوض
                         </span>
                       ) : null}
                     </td>
@@ -358,9 +448,17 @@ const ReportsTable = ({
               })
             )}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
-    </div>
+
+      <ExecutionRejectModal
+        isOpen={Boolean(pendingRejectReportId)}
+        isSubmitting={isPendingRejectSubmitting}
+        onClose={closePendingRejectModal}
+        onConfirm={handleConfirmPendingReject}
+      />
+    </>
   )
 }
 

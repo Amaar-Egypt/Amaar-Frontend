@@ -1,15 +1,16 @@
 import type { ReportsFilterTab } from '../../types/report'
-import { reportFilterTabs } from '../../utils/reportPresentation'
+import type { ReportFilterTabOption } from '../../utils/reportPresentation'
 
 interface ReportsFiltersProps {
   activeTab: ReportsFilterTab
+  tabs: ReportFilterTabOption[]
   onChangeTab: (tab: ReportsFilterTab) => void
 }
 
-const ReportsFilters = ({ activeTab, onChangeTab }: ReportsFiltersProps) => {
+const ReportsFilters = ({ activeTab, tabs, onChangeTab }: ReportsFiltersProps) => {
   return (
     <div dir="rtl" className="flex flex-wrap items-center gap-2">
-      {reportFilterTabs.map((tab) => {
+      {tabs.map((tab) => {
         const isActive = tab.key === activeTab
 
         return (

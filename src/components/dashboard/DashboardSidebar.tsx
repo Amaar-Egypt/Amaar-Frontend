@@ -1,6 +1,7 @@
 import type { ComponentType, SVGProps } from 'react'
 import logo from '../../assets/logo.png'
 import type { Report } from '../../types/report'
+import type { UserRole } from '../../types/auth'
 import ReportDetailsPanel from './ReportDetailsPanel'
 
 type DashboardSection = 'home' | 'map' | 'assigned-reports' | 'profile'
@@ -15,6 +16,7 @@ interface DashboardSidebarProps {
   activeSection: DashboardSection
   onSelectSection: (section: DashboardSection) => void
   selectedReport: Report | null
+  viewerRole?: UserRole | null
   isDetailsLoading?: boolean
   detailsErrorMessage?: string | null
   onViewFullDetails?: (report: Report) => void
@@ -68,6 +70,7 @@ const DashboardSidebar = ({
   activeSection,
   onSelectSection,
   selectedReport,
+  viewerRole = null,
   isDetailsLoading = false,
   detailsErrorMessage = null,
   onViewFullDetails,
@@ -141,6 +144,7 @@ const DashboardSidebar = ({
           <div className="min-h-0 flex-1 overflow-y-auto">
             <ReportDetailsPanel
               report={selectedReport}
+              viewerRole={viewerRole}
               isLoading={isDetailsLoading}
               errorMessage={detailsErrorMessage}
               onViewFullDetails={onViewFullDetails}
