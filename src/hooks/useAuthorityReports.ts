@@ -4,6 +4,7 @@ import type {
   DashboardStats,
   Report,
   ReportPriority,
+  ReportsPagination,
   ReportsFilterTab,
   ReportStatus,
 } from '../types/report'
@@ -39,6 +40,9 @@ interface StatusUpdatePayload {
 interface FetchReportsOptions {
   isManualRefresh?: boolean
   refreshSummary?: boolean
+  page?: number
+  limit?: number
+  status?: ReportStatus
 }
 
 interface UseAuthorityReportsOptions {
@@ -115,6 +119,9 @@ const applyReportTransition = (
 const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   const [reports, setReports] = useState<Report[]>([])
   const [counts, setCounts] = useState<DashboardStats>(() => createEmptyDashboardStats())
+  const [pagination, setPagination] = useState<ReportsPagination | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [isLoading, setIsLoading] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isCountsLoading, setIsCountsLoading] = useState(false)
@@ -127,13 +134,15 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   const syncReports = useCallback((nextReports: Report[]) => {
     reportsRef.current = nextReports
     setReports(nextReports)
-    setCounts(calculateDashboardStatsFromReports(nextReports))
   }, [])
 
   const refreshCounts = useCallback(async () => {
     setIsCountsLoading(true)
 
     try {
+      const summary = await reportService.getAuthorityReportsStats()
+      setCounts(summary)
+    } catch {
       setCounts(calculateDashboardStatsFromReports(reportsRef.current))
     } finally {
       setIsCountsLoading(false)
@@ -141,7 +150,16 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   }, [])
 
   const fetchReports = useCallback(async (options: FetchReportsOptions = {}) => {
-    const { isManualRefresh = false, refreshSummary = false } = options
+    const {
+      isManualRefresh = false,
+      refreshSummary = false,
+      page,
+      limit,
+      status,
+    } = options
+
+    const resolvedPage = page ?? 1
+    const resolvedLimit = limit ?? pageSize
 
     if (isManualRefresh) {
       setIsRefreshing(true)
@@ -152,13 +170,16 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     setErrorMessage(null)
 
     try {
-      // Keep reports in memory so role filters are applied globally
-      // before table pagination is calculated in the page layer.
-      const allReports = await reportService.listAllAuthorityReports()
-      const roleAwareReports = filterReportsForViewer(allReports, viewer)
+      const pageResponse = await reportService.listReports({
+        page: resolvedPage,
+        limit: resolvedLimit,
+        status,
+      })
+
+      const roleAwareReports = filterReportsForViewer(pageResponse.reports, viewer)
 
       if (isReportVisibilityDebugEnabled) {
-        const reportsSample = allReports.slice(0, 5).map((report) => ({
+        const reportsSample = pageResponse.reports.slice(0, 5).map((report) => ({
           id: report.id,
           status: report.status,
           assignedAuth: report.assignedAuth,
@@ -173,16 +194,26 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
           normalizedViewerAuthorityId,
           normalizedViewerUserId,
           appliedAuthorityKey: normalizedViewerAuthorityId ?? normalizedViewerUserId,
-          totalFetchedReports: allReports.length,
+          page: resolvedPage,
+          pageSize: resolvedLimit,
+          totalFetchedReports: pageResponse.reports.length,
           totalVisibleReports: roleAwareReports.length,
           reportsSample,
         })
       }
 
       syncReports(roleAwareReports)
+      setCurrentPage(resolvedPage)
+      setPageSize(resolvedLimit)
+      setPagination(pageResponse.pagination)
 
       if (refreshSummary) {
-        setCounts(calculateDashboardStatsFromReports(roleAwareReports))
+        try {
+          const summary = await reportService.getAuthorityReportsStats()
+          setCounts(summary)
+        } catch {
+          setCounts(calculateDashboardStatsFromReports(roleAwareReports))
+        }
       }
     } catch (error) {
       setErrorMessage(getApiErrorMessage(error, DEFAULT_ERROR_MESSAGE))
@@ -190,7 +221,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
       setIsLoading(false)
       setIsRefreshing(false)
     }
-  }, [syncReports, viewer])
+  }, [pageSize, syncReports, viewer])
 
   const getTabReports = useCallback(
     (tab: ReportsFilterTab) => {
@@ -331,7 +362,6 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
       reportId,
       action: 'human-update',
       payload: {
-        status: 'human_review',
         priority,
         assignedAuth: normalizedAssignedAuth,
       },
@@ -411,10 +441,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     })
   }, [performStatusUpdate])
 
-  const pagination = null
-  const isServerPagination = false
-  const currentPage = 1
-  const pageSize = DEFAULT_PAGE_SIZE
+  const isServerPagination = true
 
   return {
     reports,

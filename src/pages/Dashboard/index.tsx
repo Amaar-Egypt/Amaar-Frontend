@@ -18,15 +18,12 @@ import {
   getReportTypeLabel,
 } from '../../utils/reportPresentation'
 
-const CLIENT_PAGE_SIZE = 8
-
 const DashboardPage = () => {
   const navigate = useNavigate()
   const { logout, user } = useAuth()
   const [activeSection, setActiveSection] = useState<DashboardSection>('home')
   const [activeFilterTab, setActiveFilterTab] = useState<ReportsFilterTab>('all')
   const [searchQuery, setSearchQuery] = useState('')
-  const [clientPage, setClientPage] = useState(1)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isFullDetailsOpen, setIsFullDetailsOpen] = useState(false)
   const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
@@ -36,6 +33,10 @@ const DashboardPage = () => {
 
   const {
     counts,
+    pagination,
+    currentPage,
+    pageSize,
+    isServerPagination,
     getTabReports,
     fetchReports,
     acceptReport,
@@ -52,13 +53,15 @@ const DashboardPage = () => {
     actionLoadingById,
   } = useAuthorityReports({ viewer: user ?? null })
 
-  useEffect(() => {
-    fetchReports({ refreshSummary: true })
-  }, [fetchReports])
+  const statusFilter = activeFilterTab === 'all' ? undefined : activeFilterTab
 
   useEffect(() => {
-    setClientPage(1)
-  }, [activeFilterTab, searchQuery])
+    fetchReports({
+      refreshSummary: true,
+      page: 1,
+      status: statusFilter,
+    })
+  }, [fetchReports, statusFilter])
 
   useEffect(() => {
     if (!filterTabs.some((tab) => tab.key === activeFilterTab)) {
@@ -106,20 +109,17 @@ const DashboardPage = () => {
     })
   }, [reportsByFilter, searchQuery])
 
-  const totalPages = Math.max(1, Math.ceil(filteredReports.length / CLIENT_PAGE_SIZE))
+  const paginatedReports = filteredReports
 
-  const safeClientPage = Math.min(clientPage, totalPages)
+  const totalPages = isServerPagination
+    ? Math.max(1, pagination?.totalPages ?? 1)
+    : 1
 
-  useEffect(() => {
-    if (clientPage > totalPages) {
-      setClientPage(totalPages)
-    }
-  }, [clientPage, totalPages])
-
-  const paginatedReports = useMemo(() => {
-    const startIndex = (safeClientPage - 1) * CLIENT_PAGE_SIZE
-    return filteredReports.slice(startIndex, startIndex + CLIENT_PAGE_SIZE)
-  }, [filteredReports, safeClientPage])
+  const effectiveCurrentPage = isServerPagination ? currentPage : 1
+  const effectivePageSize = isServerPagination ? (pagination?.limit ?? pageSize) : filteredReports.length
+  const effectiveTotalItems = isServerPagination
+    ? (pagination?.total ?? filteredReports.length)
+    : filteredReports.length
 
   useEffect(() => {
     if (paginatedReports.length === 0) {
@@ -141,25 +141,24 @@ const DashboardPage = () => {
     }
   }, [handleSelectReport, paginatedReports, selectedReport])
 
-  const effectiveCurrentPage = safeClientPage
-  const effectivePageSize = CLIENT_PAGE_SIZE
-  const effectiveTotalItems = filteredReports.length
-
   const handlePageChange = (targetPage: number) => {
     if (targetPage < 1 || targetPage > totalPages || targetPage === effectiveCurrentPage) {
       return
     }
 
-    setClientPage(targetPage)
+    fetchReports({
+      page: targetPage,
+      status: statusFilter,
+    })
   }
 
   const handleRefresh = () => {
     fetchReports({
       isManualRefresh: true,
       refreshSummary: true,
+      page: effectiveCurrentPage,
+      status: statusFilter,
     })
-
-    setClientPage(1)
   }
 
   const renderSectionContent = () => {
