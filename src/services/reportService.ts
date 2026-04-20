@@ -11,10 +11,7 @@ import type {
   ReportStatus,
   ReportTypeCode,
 } from '../types/report'
-import {
-  calculateDashboardStatsFromReports,
-  normalizeDashboardStats,
-} from '../utils/reportStats'
+import { normalizeDashboardStats } from '../utils/reportStats'
 import {
   extractResponseData,
   extractResponseMessage,
@@ -69,12 +66,6 @@ interface UpdateReportPayload {
 }
 
 const DEFAULT_REJECT_COMMENT = 'تم رفض البلاغ من الجهة المختصة.'
-const STATS_FETCH_PAGE_SIZE = 100
-const SUMMARY_ENDPOINTS = [
-  '/reports/summary',
-  '/reports/stats',
-  '/reports/dashboard-summary',
-]
 const REPORT_TYPE_CODES: ReportTypeCode[] = [
   'pothole',
   'garbage',
@@ -362,105 +353,6 @@ const pickNumericField = (
   return null
 }
 
-const normalizeSummarySource = (source: UnknownObject): DashboardStats | null => {
-  const total = pickNumericField(source, ['total', 'totalReports', 'reportsTotal'])
-
-  const aiReview = pickNumericField(source, [
-    'aiReview',
-    'ai_review',
-    'underAiReview',
-    'inAiReview',
-  ])
-
-  const humanReview = pickNumericField(source, [
-    'humanReview',
-    'human_review',
-    'manualReview',
-    'inHumanReview',
-  ])
-
-  const pending = pickNumericField(source, [
-    'pending',
-    'readyForWork',
-    'classifiedPendingWork',
-  ])
-
-  const inProgress = pickNumericField(source, [
-    'inProgress',
-    'in_progress',
-    'activeWork',
-  ])
-
-  const resolved = pickNumericField(source, [
-    'resolved',
-    'completed',
-    'closed',
-  ])
-
-  if (
-    total === null ||
-    aiReview === null ||
-    humanReview === null ||
-    pending === null ||
-    inProgress === null ||
-    resolved === null
-  ) {
-    return null
-  }
-
-  return normalizeDashboardStats({
-    total,
-    aiReview,
-    humanReview,
-    pending,
-    inProgress,
-    resolved,
-  })
-}
-
-const extractSummaryFromPayload = (payload: unknown): DashboardStats | null => {
-  if (!isObject(payload)) {
-    return null
-  }
-
-  const candidates: UnknownObject[] = [payload]
-
-  const data = payload.data
-  if (isObject(data)) {
-    candidates.push(data)
-
-    const nestedSummary = data.summary
-    if (isObject(nestedSummary)) {
-      candidates.push(nestedSummary)
-    }
-
-    const nestedStats = data.stats
-    if (isObject(nestedStats)) {
-      candidates.push(nestedStats)
-    }
-  }
-
-  const summary = payload.summary
-  if (isObject(summary)) {
-    candidates.push(summary)
-  }
-
-  const stats = payload.stats
-  if (isObject(stats)) {
-    candidates.push(stats)
-  }
-
-  for (const candidate of candidates) {
-    const normalized = normalizeSummarySource(candidate)
-
-    if (normalized) {
-      return normalized
-    }
-  }
-
-  return null
-}
-
 const normalizeReport = (raw: ReportApiModel): Report => {
   const source = raw as unknown as UnknownObject
   const normalizedType = isReportTypeCode(raw.type)
@@ -528,63 +420,35 @@ const listReports = async (query?: ReportsQuery): Promise<ReportsResult> => {
   }
 }
 
-const tryReadSummaryEndpoint = async (): Promise<DashboardStats | null> => {
-  for (const endpoint of SUMMARY_ENDPOINTS) {
-    try {
-      const response = await apiClient.get<unknown>(endpoint)
-      const normalized = extractSummaryFromPayload(response.data)
-
-      if (normalized) {
-        return normalized
-      }
-    } catch {
-      // Ignore unsupported summary routes and fallback to safe aggregation.
-    }
-  }
-
-  return null
-}
-
-const listAllAuthorityReports = async (): Promise<Report[]> => {
-  const firstPage = await listReports({
-    page: 1,
-    limit: STATS_FETCH_PAGE_SIZE,
-  })
-
-  if (!firstPage.pagination || firstPage.pagination.totalPages <= 1) {
-    return firstPage.reports
-  }
-
-  const mergedReports = [...firstPage.reports]
-  const pageLimit = firstPage.pagination.limit || STATS_FETCH_PAGE_SIZE
-
-  for (let page = 2; page <= firstPage.pagination.totalPages; page += 1) {
-    const pageResponse = await listReports({
-      page,
-      limit: pageLimit,
-    })
-
-    mergedReports.push(...pageResponse.reports)
-  }
-
-  const deduplicatedReports = new Map<string, Report>()
-
-  for (const report of mergedReports) {
-    deduplicatedReports.set(report.id, report)
-  }
-
-  return Array.from(deduplicatedReports.values())
+const getTotalFromPagedResult = (result: ReportsResult): number => {
+  return result.pagination?.total ?? result.reports.length
 }
 
 const getAuthorityReportsStats = async (): Promise<DashboardStats> => {
-  const summary = await tryReadSummaryEndpoint()
+  const [
+    allReportsResult,
+    aiReviewResult,
+    humanReviewResult,
+    pendingResult,
+    inProgressResult,
+    resolvedResult,
+  ] = await Promise.all([
+    listReports({ page: 1, limit: 1 }),
+    listReports({ page: 1, limit: 1, status: 'ai_review' }),
+    listReports({ page: 1, limit: 1, status: 'human_review' }),
+    listReports({ page: 1, limit: 1, status: 'pending' }),
+    listReports({ page: 1, limit: 1, status: 'in_progress' }),
+    listReports({ page: 1, limit: 1, status: 'resolved' }),
+  ])
 
-  if (summary) {
-    return summary
-  }
-
-  const allReports = await listAllAuthorityReports()
-  return calculateDashboardStatsFromReports(allReports)
+  return normalizeDashboardStats({
+    total: getTotalFromPagedResult(allReportsResult),
+    aiReview: getTotalFromPagedResult(aiReviewResult),
+    humanReview: getTotalFromPagedResult(humanReviewResult),
+    pending: getTotalFromPagedResult(pendingResult),
+    inProgress: getTotalFromPagedResult(inProgressResult),
+    resolved: getTotalFromPagedResult(resolvedResult),
+  })
 }
 
 const getReportById = async (id: string): Promise<Report> => {
@@ -630,7 +494,6 @@ const updateReport = async (
 
 const reportService = {
   listReports,
-  listAllAuthorityReports,
   getAuthorityReportsStats,
   getReportById,
   acceptReport,
