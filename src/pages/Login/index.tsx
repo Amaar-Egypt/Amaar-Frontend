@@ -28,7 +28,7 @@ type LoginFormValues = z.infer<typeof loginSchema>
 const LoginPage = () => {
   const navigate = useNavigate()
   const location = useLocation()
-  const { startSession, clearSession } = useAuth()
+  const { startSession } = useAuth()
   const { loginUser, isLoading, errorMessage } = useLogin()
   const [roleErrorMessage, setRoleErrorMessage] = useState<string | null>(null)
 
@@ -64,18 +64,17 @@ const LoginPage = () => {
       return
     }
 
+    if (!hasAuthorityAccess(result.user?.role)) {
+      setRoleErrorMessage('هذا الحساب ليس جهة مختصة ولا يملك صلاحية الدخول إلى لوحة الإدارة.')
+      return
+    }
+
     startSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
       user: result.user,
       rememberMe: rememberMe ?? false,
     })
-
-    if (!hasAuthorityAccess(result.user?.role)) {
-      clearSession()
-      setRoleErrorMessage('هذا الحساب ليس جهة مختصة ولا يملك صلاحية الدخول إلى لوحة الإدارة.')
-      return
-    }
 
     navigate('/dashboard', { replace: true })
   }
