@@ -23,10 +23,6 @@ const getStatusTone = (status: Report['status']) => {
     return 'border-rose-300/70 bg-rose-500/12 text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200'
   }
 
-  if (status === 'rejected') {
-    return 'border-slate-300/70 bg-slate-500/12 text-slate-700 dark:border-slate-500/40 dark:bg-slate-500/15 dark:text-slate-200'
-  }
-
   return 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200'
 }
 

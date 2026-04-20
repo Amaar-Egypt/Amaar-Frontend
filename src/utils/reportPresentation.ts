@@ -13,7 +13,6 @@ const adminReportFilterTabs: ReportFilterTabOption[] = [
   { key: 'pending', label: 'جاهز للتنفيذ' },
   { key: 'in_progress', label: 'قيد التنفيذ' },
   { key: 'resolved', label: 'مكتمل' },
-  { key: 'rejected', label: 'مرفوض' },
 ]
 
 const authorityReportFilterTabs: ReportFilterTabOption[] = [
@@ -23,7 +22,6 @@ const authorityReportFilterTabs: ReportFilterTabOption[] = [
   { key: 'pending', label: 'جاهز للتنفيذ' },
   { key: 'in_progress', label: 'قيد التنفيذ' },
   { key: 'resolved', label: 'مكتمل' },
-  { key: 'rejected', label: 'مرفوض' },
 ]
 
 export const getReportFilterTabs = (
@@ -92,7 +90,6 @@ const statusLabelMap: Record<ReportStatus, string> = {
   pending: 'معتمد وجاهز للتنفيذ',
   in_progress: 'قيد التنفيذ',
   resolved: 'مكتمل',
-  rejected: 'مرفوض',
 }
 
 export const isPendingActionStatus = (status: ReportStatus) => status === 'ai_review'

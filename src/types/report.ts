@@ -6,7 +6,6 @@ export type ReportStatus =
   | 'pending'
   | 'in_progress'
   | 'resolved'
-  | 'rejected'
 
 export type ReportTypeCode =
   | 'pothole'
@@ -66,7 +65,6 @@ export interface DashboardStats {
   pending: number
   inProgress: number
   resolved: number
-  rejected: number
 }
 
 export type ReportsFilterTab = 'all' | ReportStatus

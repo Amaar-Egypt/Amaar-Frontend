@@ -8,9 +8,8 @@ import {
   getReportStatusLabel,
   getReportTypeLabel,
   reportPriorityOptions,
-  reportTypeOptions,
 } from '../../utils/reportPresentation'
-import type { ReportPriority, ReportTypeCode } from '../../types/report'
+import type { ReportPriority } from '../../types/report'
 
 interface ReportsTableProps {
   reports: Report[]
@@ -21,17 +20,9 @@ interface ReportsTableProps {
   onReject: (reportId: string) => void
   onHumanReviewUpdate: (params: {
     reportId: string
-    type: ReportTypeCode
     priority: ReportPriority
     assignedAuth?: string
   }) => void
-  onHumanReviewApprove: (params: {
-    reportId: string
-    type: ReportTypeCode
-    priority: ReportPriority
-    assignedAuth?: string
-  }) => void
-  onHumanReviewReject: (params: { reportId: string; comment?: string }) => void
   onStartWork: (reportId: string) => void
   onPendingReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onResolve: (reportId: string) => void
@@ -59,10 +50,6 @@ const getStatusClassName = (status: Report['status']) => {
     return 'border-rose-300/70 bg-rose-500/15 text-rose-700 dark:border-rose-400/45 dark:bg-rose-500/18 dark:text-rose-200'
   }
 
-  if (status === 'rejected') {
-    return 'border-slate-300/70 bg-slate-500/15 text-slate-700 dark:border-slate-500/45 dark:bg-slate-500/20 dark:text-slate-200'
-  }
-
   return 'border-emerald-300/70 bg-emerald-500/15 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-500/18 dark:text-emerald-200'
 }
 
@@ -74,8 +61,6 @@ const ReportsTable = ({
   onAccept,
   onReject,
   onHumanReviewUpdate,
-  onHumanReviewApprove,
-  onHumanReviewReject,
   onStartWork,
   onPendingReject,
   onResolve,
@@ -86,17 +71,14 @@ const ReportsTable = ({
   const canHandleAiReview = isAuthorityViewer || isAdminViewer
 
   const [humanReviewValuesById, setHumanReviewValuesById] = useState<Record<string, {
-    type: ReportTypeCode
     priority: ReportPriority
     assignedAuth: string
   }>>({})
-  const [humanReviewRejectCommentById, setHumanReviewRejectCommentById] = useState<Record<string, string>>({})
   const [pendingRejectReportId, setPendingRejectReportId] = useState<string | null>(null)
 
   const getHumanReviewDraft = useMemo(() => {
     return (report: Report) => {
       return humanReviewValuesById[report.id] ?? {
-        type: report.type ?? 'other',
         priority: report.priority,
         assignedAuth: report.assignedAuth ?? '',
       }
@@ -161,7 +143,6 @@ const ReportsTable = ({
                 const activeAction = actionLoadingById[report.id]
                 const isSelected = selectedReportId === report.id
                 const humanReviewDraft = getHumanReviewDraft(report)
-                const rejectComment = humanReviewRejectCommentById[report.id] ?? ''
 
                 return (
                   <tr
@@ -248,28 +229,6 @@ const ReportsTable = ({
                             onClick={(event) => event.stopPropagation()}
                             onKeyDown={(event) => event.stopPropagation()}
                           >
-                            <select
-                              value={humanReviewDraft.type}
-                              disabled={Boolean(activeAction)}
-                              onChange={(event) => {
-                                const nextType = event.target.value as ReportTypeCode
-                                setHumanReviewValuesById((prev) => ({
-                                  ...prev,
-                                  [report.id]: {
-                                    ...humanReviewDraft,
-                                    type: nextType,
-                                  },
-                                }))
-                              }}
-                              className="w-full rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                            >
-                              {reportTypeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-
                             <div className="flex items-center gap-2">
                               <select
                                 value={humanReviewDraft.priority}
@@ -317,7 +276,6 @@ const ReportsTable = ({
                                 disabled={Boolean(activeAction)}
                                 onClick={() => onHumanReviewUpdate({
                                   reportId: report.id,
-                                  type: humanReviewDraft.type,
                                   priority: humanReviewDraft.priority,
                                   assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
                                 })}
@@ -329,43 +287,10 @@ const ReportsTable = ({
                               <button
                                 type="button"
                                 disabled={Boolean(activeAction)}
-                                onClick={() => onHumanReviewApprove({
-                                  reportId: report.id,
-                                  type: humanReviewDraft.type,
-                                  priority: humanReviewDraft.priority,
-                                  assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
-                                })}
+                                onClick={() => onResolve(report.id)}
                                 className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
                               >
-                                {activeAction === 'human-approve' ? 'جارٍ الاعتماد النهائي...' : 'اعتماد نهائي'}
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={rejectComment}
-                                disabled={Boolean(activeAction)}
-                                onChange={(event) => {
-                                  setHumanReviewRejectCommentById((prev) => ({
-                                    ...prev,
-                                    [report.id]: event.target.value,
-                                  }))
-                                }}
-                                placeholder="سبب الرفض البشري (اختياري)"
-                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-rose-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                              />
-
-                              <button
-                                type="button"
-                                disabled={Boolean(activeAction)}
-                                onClick={() => onHumanReviewReject({
-                                  reportId: report.id,
-                                  comment: rejectComment.trim() || undefined,
-                                })}
-                                className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
-                              >
-                                {activeAction === 'human-reject' ? 'جارٍ رفض البلاغ...' : 'رفض البلاغ'}
+                                {activeAction === 'resolve' ? 'جارٍ إنهاء البلاغ...' : 'اعتماد الحل'}
                               </button>
                             </div>
                           </div>
@@ -434,12 +359,6 @@ const ReportsTable = ({
                       {report.status === 'resolved' ? (
                         <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                           مكتمل
-                        </span>
-                      ) : null}
-
-                      {report.status === 'rejected' ? (
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          مرفوض
                         </span>
                       ) : null}
                     </td>

@@ -42,8 +42,6 @@ const DashboardPage = () => {
     acceptReport,
     rejectReport,
     updateHumanReviewReport,
-    approveHumanReviewReport,
-    rejectHumanReviewReport,
     startWorkOnReport,
     rejectPendingExecutionReport,
     resolveReport,
@@ -198,7 +196,7 @@ const DashboardPage = () => {
 
     return (
       <>
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-7">
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <StatCard title="إجمالي البلاغات" value={counts.total} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="مراجعة الذكاء" value={counts.aiReview} tone="warning" isLoading={isCountsLoading} />
             {!isAuthorityViewer ? (
@@ -212,7 +210,6 @@ const DashboardPage = () => {
           <StatCard title="جاهز للتنفيذ" value={counts.pending} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="قيد التنفيذ" value={counts.inProgress} tone="warning" isLoading={isCountsLoading} />
           <StatCard title="مكتمل" value={counts.resolved} tone="success" isLoading={isCountsLoading} />
-          <StatCard title="مرفوض" value={counts.rejected} tone="danger" isLoading={isCountsLoading} />
         </section>
 
         <section className="space-y-3 rounded-3xl border border-slate-200/70 bg-white/72 p-4 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/68 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)] sm:p-5">
@@ -260,8 +257,6 @@ const DashboardPage = () => {
                 onAccept={acceptReport}
                 onReject={rejectReport}
                 onHumanReviewUpdate={updateHumanReviewReport}
-                onHumanReviewApprove={approveHumanReviewReport}
-                onHumanReviewReject={rejectHumanReviewReport}
                 onStartWork={startWorkOnReport}
                 onPendingReject={rejectPendingExecutionReport}
                 onResolve={resolveReport}

@@ -246,20 +246,13 @@ const normalizeSummarySource = (source: UnknownObject): DashboardStats | null =>
     'closed',
   ])
 
-  const rejected = pickNumericField(source, [
-    'rejected',
-    'declined',
-    'discarded',
-  ])
-
   if (
     total === null ||
     aiReview === null ||
     humanReview === null ||
     pending === null ||
     inProgress === null ||
-    resolved === null ||
-    rejected === null
+    resolved === null
   ) {
     return null
   }
@@ -271,7 +264,6 @@ const normalizeSummarySource = (source: UnknownObject): DashboardStats | null =>
     pending,
     inProgress,
     resolved,
-    rejected,
   })
 }
 

@@ -6,7 +6,6 @@ import type {
   ReportPriority,
   ReportsFilterTab,
   ReportStatus,
-  ReportTypeCode,
 } from '../types/report'
 import {
   calculateDashboardStatsFromReports,
@@ -17,7 +16,6 @@ import type { AuthUser } from '../types/auth'
 
 const DEFAULT_ERROR_MESSAGE = 'حدث خطأ أثناء تحميل البلاغات. حاول مرة أخرى.'
 const DEFAULT_ACTION_ERROR_MESSAGE = 'تعذر تنفيذ الإجراء على البلاغ.'
-const DEFAULT_HUMAN_REVIEW_REJECT_COMMENT = 'تم رفض البلاغ بعد المراجعة البشرية.'
 const DEFAULT_PENDING_REJECT_REASON_ERROR = 'سبب رفض التنفيذ مطلوب.'
 const DEFAULT_PAGE_SIZE = 10
 const isReportVisibilityDebugEnabled =
@@ -28,14 +26,11 @@ type ReportActionKind =
   | 'reject-ai'
   | 'reject-execution'
   | 'human-update'
-  | 'human-approve'
-  | 'human-reject'
   | 'start-work'
   | 'resolve'
 
 interface StatusUpdatePayload {
   status?: ReportStatus
-  type?: ReportTypeCode
   priority?: ReportPriority
   assignedAuth?: string
   reviewComment?: string
@@ -57,7 +52,6 @@ const AUTHORITY_VISIBLE_STATUSES: ReportStatus[] = [
   'pending',
   'in_progress',
   'resolved',
-  'rejected',
 ]
 
 const normalizeIdentifier = (value: string | null | undefined) => {
@@ -325,12 +319,10 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
 
   const updateHumanReviewReport = useCallback(async ({
     reportId,
-    type,
     priority,
     assignedAuth,
   }: {
     reportId: string
-    type: ReportTypeCode
     priority: ReportPriority
     assignedAuth?: string
   }) => {
@@ -341,68 +333,14 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
       action: 'human-update',
       payload: {
         status: 'human_review',
-        type,
         priority,
         assignedAuth: normalizedAssignedAuth,
       },
       fallbackStatus: 'human_review',
       fallbackPatch: {
-        type,
         priority,
         assignedAuth: normalizedAssignedAuth ?? null,
       },
-    })
-  }, [performStatusUpdate])
-
-  const approveHumanReviewReport = useCallback(async ({
-    reportId,
-    type,
-    priority,
-    assignedAuth,
-  }: {
-    reportId: string
-    type: ReportTypeCode
-    priority: ReportPriority
-    assignedAuth?: string
-  }) => {
-    const normalizedAssignedAuth = assignedAuth?.trim()
-
-    await performStatusUpdate({
-      reportId,
-      action: 'human-approve',
-      payload: {
-        status: 'pending',
-        type,
-        priority,
-        assignedAuth: normalizedAssignedAuth,
-      },
-      fallbackStatus: 'pending',
-      fallbackPatch: {
-        type,
-        priority,
-        assignedAuth: normalizedAssignedAuth ?? null,
-      },
-    })
-  }, [performStatusUpdate])
-
-  const rejectHumanReviewReport = useCallback(async ({
-    reportId,
-    comment,
-  }: {
-    reportId: string
-    comment?: string
-  }) => {
-    const normalizedComment = comment?.trim() || DEFAULT_HUMAN_REVIEW_REJECT_COMMENT
-
-    await performStatusUpdate({
-      reportId,
-      action: 'human-reject',
-      payload: {
-        status: 'rejected',
-        reviewComment: normalizedComment,
-      },
-      fallbackStatus: 'rejected',
-      fallbackReviewComment: normalizedComment,
     })
   }, [performStatusUpdate])
 
@@ -474,8 +412,6 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     acceptReport,
     rejectReport,
     updateHumanReviewReport,
-    approveHumanReviewReport,
-    rejectHumanReviewReport,
     startWorkOnReport,
     rejectPendingExecutionReport,
     resolveReport,

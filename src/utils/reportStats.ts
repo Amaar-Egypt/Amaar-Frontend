@@ -1,6 +1,6 @@
 import type { DashboardStats, Report, ReportStatus } from '../types/report'
 
-type StatsBucket = 'aiReview' | 'humanReview' | 'pending' | 'inProgress' | 'resolved' | 'rejected' | null
+type StatsBucket = 'aiReview' | 'humanReview' | 'pending' | 'inProgress' | 'resolved' | null
 
 export const createEmptyDashboardStats = (): DashboardStats => {
   return {
@@ -10,7 +10,6 @@ export const createEmptyDashboardStats = (): DashboardStats => {
     pending: 0,
     inProgress: 0,
     resolved: 0,
-    rejected: 0,
   }
 }
 
@@ -32,7 +31,6 @@ export const normalizeDashboardStats = (
     pending: toSafeCount(stats.pending),
     inProgress: toSafeCount(stats.inProgress),
     resolved: toSafeCount(stats.resolved),
-    rejected: toSafeCount(stats.rejected),
   }
 }
 
@@ -48,8 +46,6 @@ export const getStatsBucketForStatus = (status: ReportStatus): StatsBucket => {
       return 'inProgress'
     case 'resolved':
       return 'resolved'
-    case 'rejected':
-      return 'rejected'
     default:
       return null
   }
