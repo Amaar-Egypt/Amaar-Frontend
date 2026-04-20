@@ -8,10 +8,22 @@
   box-sizing: border-box;
 }
 
+:root {
+  color-scheme: light;
+  --app-bg: #f5f9ff;
+  --app-fg: #0f172a;
+}
+
+html.dark {
+  color-scheme: dark;
+  --app-bg: #020617;
+  --app-fg: #f8fafc;
+}
+
 html,
 body,
 #root {
-  min-height: 100%;
+  min-height: 100vh;
 }
 
 body {
@@ -22,8 +34,9 @@ body {
     'Segoe UI',
     Tahoma,
     sans-serif;
-  background-color: #020617;
-  color: #f8fafc;
+  background-color: var(--app-bg);
+  color: var(--app-fg);
+  transition: background-color 220ms ease, color 220ms ease;
 }
 
 @keyframes fade-up {

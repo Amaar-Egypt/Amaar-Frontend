@@ -2,36 +2,34 @@ import { AxiosError } from 'axios'
 import { useCallback, useState } from 'react'
 import authService from '../services/authService'
 import type { LoginRequest, LoginResponse } from '../services/authService'
-
-interface BackendErrorResponse {
-  message?: string
-  error?: string
-}
+import type { AuthUser } from '../types/auth'
+import { getApiErrorMessage } from '../utils/apiResponse'
+import { normalizeAuthUser } from '../utils/authNormalization'
+import { userFromTokenPayload } from '../utils/jwt'
 
 interface LoginResult {
   success: boolean
   message: string
-  token?: string
+  accessToken?: string
+  refreshToken?: string
+  user?: AuthUser | null
 }
 
 const DEFAULT_ERROR_MESSAGE = 'تعذر تسجيل الدخول. تحقق من البيانات وحاول مرة أخرى.'
 
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof AxiosError) {
-    const responseData = error.response?.data as BackendErrorResponse | undefined
-    return responseData?.message ?? responseData?.error ?? DEFAULT_ERROR_MESSAGE
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return DEFAULT_ERROR_MESSAGE
-}
-
 const extractToken = (response: LoginResponse): string | undefined => {
   // Support common backend token shapes without coupling the UI to one response contract.
-  return response.token ?? response.accessToken ?? response.data?.token ?? response.data?.accessToken
+  return response.accessToken ?? response.token
+}
+
+const extractUser = (response: LoginResponse, token?: string) => {
+  const normalizedUser = normalizeAuthUser(response.user ?? response)
+
+  if (normalizedUser) {
+    return normalizedUser
+  }
+
+  return userFromTokenPayload(token)
 }
 
 const useLogin = () => {
@@ -47,6 +45,7 @@ const useLogin = () => {
     try {
       const response = await authService.login(data)
       const token = extractToken(response)
+      const user = extractUser(response, token)
 
       if (!token) {
         const fallbackMessage = response.message ?? DEFAULT_ERROR_MESSAGE
@@ -60,7 +59,9 @@ const useLogin = () => {
       return {
         success: true,
         message: response.message ?? 'تم تسجيل الدخول بنجاح.',
-        token,
+        accessToken: token,
+        refreshToken: response.refreshToken,
+        user,
       }
     } catch (error) {
       if (error instanceof AxiosError && isSafeDebugEnabled) {
@@ -70,7 +71,7 @@ const useLogin = () => {
         })
       }
 
-      const message = getErrorMessage(error)
+      const message = getApiErrorMessage(error, DEFAULT_ERROR_MESSAGE)
       setErrorMessage(message)
 
       return {

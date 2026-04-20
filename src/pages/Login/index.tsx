@@ -1,12 +1,14 @@
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { z } from 'zod'
 import BrandLogo from '../../components/BrandLogo'
 import TextField from '../../components/form/TextField'
 import useAuth from '../../hooks/useAuth'
 import useLogin from '../../hooks/useLogin'
 import AuthLayout from '../../layout/AuthLayout'
+import { hasAuthorityAccess } from '../../types/auth'
 
 const loginSchema = z.object({
   email: z
@@ -25,8 +27,15 @@ type LoginFormValues = z.infer<typeof loginSchema>
 
 const LoginPage = () => {
   const navigate = useNavigate()
-  const { setToken } = useAuth()
+  const location = useLocation()
+  const { startSession } = useAuth()
   const { loginUser, isLoading, errorMessage } = useLogin()
+  const [roleErrorMessage, setRoleErrorMessage] = useState<string | null>(null)
+
+  const routeUnauthorizedMessage =
+    location.state && typeof location.state === 'object' && 'unauthorized' in location.state
+      ? 'هذا الحساب لا يملك صلاحية الوصول إلى لوحة الجهات المختصة.'
+      : null
 
   const {
     register,
@@ -42,6 +51,8 @@ const LoginPage = () => {
   })
 
   const onSubmit = async ({ email, password, rememberMe }: LoginFormValues) => {
+    setRoleErrorMessage(null)
+
     const normalizedEmail = email.trim()
 
     const result = await loginUser({
@@ -49,12 +60,22 @@ const LoginPage = () => {
       password,
     })
 
-    if (!result.success || !result.token) {
+    if (!result.success || !result.accessToken) {
       return
     }
 
-    // Store token via context so route guards react immediately after login.
-    setToken(result.token, rememberMe ?? false)
+    if (!hasAuthorityAccess(result.user?.role)) {
+      setRoleErrorMessage('هذا الحساب ليس جهة مختصة ولا يملك صلاحية الدخول إلى لوحة الإدارة.')
+      return
+    }
+
+    startSession({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+      rememberMe: rememberMe ?? false,
+    })
+
     navigate('/dashboard', { replace: true })
   }
 
@@ -62,12 +83,12 @@ const LoginPage = () => {
     <AuthLayout>
       <section dir="rtl" className="w-full max-w-xl text-right [animation:fade-up_0.75s_ease-out]">
         <BrandLogo />
-        <h1 className="mb-6 text-center text-2xl font-extrabold leading-relaxed text-slate-100 sm:text-3xl">
+        <h1 className="mb-6 text-center text-2xl font-extrabold leading-relaxed text-slate-800 dark:text-slate-100 sm:text-3xl">
           ساهم في تجميل مدينتك... ابدأ الآن مع عمار
         </h1>
 
-        <div className="rounded-3xl border border-white/10 bg-white/10 p-6 shadow-[0_28px_80px_rgba(2,6,23,0.62)] backdrop-blur-md sm:p-8">
-          <h2 className="mb-6 text-center text-xl font-bold text-slate-100 sm:text-2xl">
+        <div className="rounded-3xl border border-slate-200/65 bg-white/72 p-6 shadow-[0_18px_48px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:border-white/10 dark:bg-white/10 dark:shadow-[0_28px_80px_rgba(2,6,23,0.62)] sm:p-8">
+          <h2 className="mb-6 text-center text-xl font-bold text-slate-800 dark:text-slate-100 sm:text-2xl">
             تسجيل الدخول
           </h2>
 
@@ -93,15 +114,15 @@ const LoginPage = () => {
             <div className="flex items-center justify-between gap-4 pt-1">
               <Link
                 to="/forgot-password"
-                className="text-sm font-semibold text-emerald-300 transition hover:text-emerald-200"
+                className="text-sm font-semibold text-emerald-700 transition hover:text-emerald-600 dark:text-emerald-300 dark:hover:text-emerald-200"
               >
                 نسيت كلمة المرور؟
               </Link>
 
-              <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-200">
+              <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                 <input
                   type="checkbox"
-                  className="h-4 w-4 rounded border-white/20 bg-slate-900/50 text-emerald-400 focus:ring-emerald-300/60"
+                  className="h-4 w-4 rounded border-slate-300 bg-white/80 text-emerald-500 focus:ring-emerald-300/60 dark:border-white/20 dark:bg-slate-900/50 dark:text-emerald-400"
                   {...register('rememberMe')}
                 />
                 <span>تذكرني</span>
@@ -117,16 +138,28 @@ const LoginPage = () => {
             </button>
 
             {errorMessage ? (
-              <p className="rounded-xl border border-rose-300/40 bg-rose-500/15 px-3 py-2 text-center text-sm text-rose-200">
+              <p className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-center text-sm text-rose-700 dark:border-rose-300/40 dark:bg-rose-500/15 dark:text-rose-200">
                 {errorMessage}
               </p>
             ) : null}
 
-            <p className="pt-1 text-center text-sm text-slate-300">
+            {roleErrorMessage ? (
+              <p className="rounded-xl border border-amber-300/70 bg-amber-500/12 px-3 py-2 text-center text-sm text-amber-700 dark:border-amber-300/50 dark:bg-amber-500/15 dark:text-amber-200">
+                {roleErrorMessage}
+              </p>
+            ) : null}
+
+            {routeUnauthorizedMessage ? (
+              <p className="rounded-xl border border-amber-300/70 bg-amber-500/12 px-3 py-2 text-center text-sm text-amber-700 dark:border-amber-300/50 dark:bg-amber-500/15 dark:text-amber-200">
+                {routeUnauthorizedMessage}
+              </p>
+            ) : null}
+
+            <p className="pt-1 text-center text-sm text-slate-600 dark:text-slate-300">
               ليس لديك حساب؟{' '}
               <Link
                 to="/register"
-                className="font-semibold text-emerald-300 transition hover:text-emerald-200"
+                className="font-semibold text-emerald-700 transition hover:text-emerald-600 dark:text-emerald-300 dark:hover:text-emerald-200"
               >
                 إنشاء حساب جديد
               </Link>

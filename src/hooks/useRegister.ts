@@ -1,27 +1,9 @@
-import { AxiosError } from 'axios'
 import { useCallback, useState } from 'react'
 import authService from '../services/authService'
 import type { RegisterRequest } from '../services/authService'
-
-interface BackendErrorResponse {
-  message?: string
-  error?: string
-}
+import { getApiErrorMessage } from '../utils/apiResponse'
 
 const DEFAULT_ERROR_MESSAGE = 'حدث خطأ أثناء إنشاء الحساب. حاول مرة أخرى.'
-
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof AxiosError) {
-    const responseData = error.response?.data as BackendErrorResponse | undefined
-    return responseData?.message ?? responseData?.error ?? DEFAULT_ERROR_MESSAGE
-  }
-
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return DEFAULT_ERROR_MESSAGE
-}
 
 interface RegisterResult {
   success: boolean
@@ -44,7 +26,7 @@ const useRegister = () => {
           message: response.message ?? 'تم إنشاء الحساب بنجاح.',
         }
       } catch (error) {
-        const message = getErrorMessage(error)
+        const message = getApiErrorMessage(error, DEFAULT_ERROR_MESSAGE)
         setErrorMessage(message)
 
         return {

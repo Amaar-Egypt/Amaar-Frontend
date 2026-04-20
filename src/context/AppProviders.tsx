@@ -1,8 +1,13 @@
 import type { PropsWithChildren } from 'react'
 import { AuthProvider } from './AuthContext'
+import { ThemeProvider } from './ThemeContext'
 
 const AppProviders = ({ children }: PropsWithChildren) => {
-  return <AuthProvider>{children}</AuthProvider>
+  return (
+    <ThemeProvider>
+      <AuthProvider>{children}</AuthProvider>
+    </ThemeProvider>
+  )
 }
 
 export default AppProviders

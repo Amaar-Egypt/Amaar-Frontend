@@ -1,24 +1,28 @@
-# Amaar Frontend - Register Flow
+# Amaar Frontend
 
-Production-ready React + TypeScript frontend for user registration in the Amaar platform.
+Production-ready frontend for Amaar smart-city workflows, built with React + TypeScript + Vite + TailwindCSS.
 
-The current implementation delivers a complete Arabic Register page with:
+## Highlights
 
-- Modern dark UI with glassmorphism card
-- Client-side form validation using React Hook Form + Zod
-- API integration using Axios
-- Success/error handling and redirect flow
+- Arabic-first RTL experience with premium dark UI style.
+- Full authentication flow (Register + Login) with role-aware routing.
+- Authority dashboard with:
+  - Right sidebar navigation (default active page: `الرئيسية`)
+  - Statistics cards
+  - Search and status filters
+  - Reports table with approve/reject actions
+- Reusable service + hook architecture for backend integration.
+- Global dark/light theme system (dark default) with persistent user preference.
 
-## Project Overview
+## Tech Stack
 
-This project is built with Vite and follows a scalable architecture that separates UI, business logic, and API access.
-
-The Register flow submits user data to:
-
-`POST https://amaarbackend-production.up.railway.app/auth/register`
-
-On success, the user sees a success message then is redirected to the login route.
-On failure, the backend message is displayed directly in the form.
+- React 19
+- TypeScript
+- Vite
+- TailwindCSS
+- Axios
+- React Router
+- React Hook Form + Zod
 
 ## Folder Structure
 
@@ -27,15 +31,36 @@ src/
   assets/
   components/
     BrandLogo.tsx
+    ThemeToggle.tsx
+    dashboard/
+      DashboardSidebar.tsx
+      DashboardTopbar.tsx
+      ReportsFilters.tsx
+      ReportsTable.tsx
+      StatCard.tsx
     form/
       TextField.tsx
+    routing/
+      ProtectedRoute.tsx
   context/
     AppProviders.tsx
+    AuthContext.tsx
+    ThemeContext.tsx
+    auth-context.ts
+    theme-context.ts
   hooks/
+    useAuth.ts
+    useAuthorityReports.ts
+    useLogin.ts
     useRegister.ts
+    useTheme.ts
   layout/
     AuthLayout.tsx
   pages/
+    Dashboard/
+      index.tsx
+    ForgotPassword/
+      index.tsx
     Login/
       index.tsx
     Register/
@@ -43,75 +68,153 @@ src/
   services/
     apiClient.ts
     authService.ts
+    authStorage.ts
+    authTokenManager.ts
+    reportService.ts
+  types/
+    auth.ts
+    report.ts
+  utils/
+    jwt.ts
+    reportPresentation.ts
   App.tsx
-  main.tsx
   index.css
+  main.tsx
 ```
 
-### Why this structure?
+## Dashboard Architecture
 
-- `components`: reusable UI units (inputs, logo, shared visual building blocks).
-- `pages`: route-level screens (Register and Login pages).
-- `services`: external communication layer (Axios client and auth endpoints).
-- `hooks`: reusable stateful/business logic (`useRegister`) away from JSX.
-- `context`: app-wide providers and shared state containers (scales well for auth/theme later).
-- `layout`: shared page shells and structural wrappers (`AuthLayout`) for consistency.
+The authority dashboard is built with a scalable layered approach:
 
-## How Register Flow Works
+- `pages/Dashboard/index.tsx`
+  - Orchestrates page-level state (active section, filter tab, search).
+  - Composes reusable dashboard components.
+- `hooks/useAuthorityReports.ts`
+  - Handles fetching reports, loading states, action states, and optimistic updates.
+- `services/reportService.ts`
+  - Encapsulates all report endpoints and response normalization.
+- `components/dashboard/*`
+  - Keeps UI blocks modular (sidebar, topbar, stats, filters, table).
 
-1. **Form (UI Layer)**  
-   `src/pages/Register/index.tsx` renders fields for name, email, password, confirm password, and phone.
+## Auth Flow
 
-2. **Validation (Client Layer)**  
-   Zod schema validates required fields, email format, password length, phone format, and password confirmation match.
+1. User logs in from `Login` page.
+2. `useLogin` calls `/auth/login` and extracts `accessToken`, `refreshToken`, and user info.
+3. `AuthContext` starts the session and persists it (`sessionStorage` or `localStorage` with Remember Me).
+4. `ProtectedRoute` blocks unauthorized access.
+5. Role-based access:
+   - `authority` and `admin` -> redirected to `/dashboard`
+   - other roles -> kept away from authority dashboard
+6. API 401 responses trigger automatic refresh using `/auth/refresh`.
+7. If refresh succeeds, the app retries the failed request silently.
+8. If refresh fails, the session is cleared and the user is redirected to `/login`.
 
-3. **Hook (Feature Logic Layer)**  
-   `src/hooks/useRegister.ts` handles loading state, errors, and the register action lifecycle.
+## Refresh Token Lifecycle
 
-4. **Service (API Layer)**  
-   `src/services/authService.ts` exposes `register(data)` and sends a `POST /auth/register` request using Axios.
+The frontend uses a production-style token lifecycle with automatic renewal.
 
-5. **Result Handling (UX Layer)**  
-   Success -> show confirmation + redirect to `/login`.  
-   Error -> show backend-provided message.
+### Session Bootstrap
 
-## Request Payload
+- On app startup, `AuthContext` reads stored session from `authStorage`.
+- `authTokenManager` keeps in-memory `accessToken` + `refreshToken` for interceptors.
+- Storage location depends on Remember Me:
+  - `localStorage` when user chooses `تذكرني`
+  - `sessionStorage` otherwise
 
-The register endpoint is called with:
+### Request Lifecycle
 
-```json
-{
-  "name": "string",
-  "email": "string",
-  "password": "string",
-  "confirmPassword": "string",
-  "phone": "string"
-}
-```
+- `apiClient` request interceptor automatically attaches:
+  - `Authorization: Bearer <accessToken>`
+- If access token is valid, request completes normally.
 
-## How to Run the Project
+### Expired Access Token
+
+- On `401` from protected endpoints, response interceptor:
+  1. Checks refresh eligibility (prevents auth endpoint loops).
+  2. Queues one refresh request to avoid duplicate concurrent refresh calls.
+  3. Calls `POST /auth/refresh` using stored `refreshToken`.
+  4. Updates in-memory + persisted session with new token(s).
+  5. Retries the original failed request automatically.
+
+### Refresh Failure
+
+- If refresh fails (invalid/expired refresh token):
+  - session is cleared
+  - auth state resets
+  - `ProtectedRoute` redirects to `/login`
+
+### Loop and Concurrency Safety
+
+- Refresh is skipped for auth endpoints:
+  - `/auth/login`
+  - `/auth/register`
+  - `/auth/refresh`
+  - `/auth/logout`
+- Requests are retried only once (`_retry` guard).
+- Concurrent `401` responses share one in-flight refresh promise.
+
+## Logout Lifecycle
+
+- User logout calls `POST /auth/logout`.
+- Frontend then clears:
+  - access token
+  - refresh token
+  - user profile session
+  - storage preference snapshot
+- User is redirected to `/login`.
+
+If backend logout fails, frontend still clears local session to guarantee secure sign-out.
+
+## Theme System
+
+- Global provider: `ThemeContext`.
+- Default mode: `dark`.
+- Toggle component: `ThemeToggle`.
+- Persistence: `localStorage` (`amaar.ui.theme`).
+- Tailwind dark mode strategy: class-based (`darkMode: 'class'`).
+
+## API Integration
+
+Base URL (default):
+
+`https://amaarbackend-production.up.railway.app`
+
+Auth endpoints used:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `GET /users/me`
+
+Report endpoints used:
+
+- `GET /reports`
+- `GET /reports/{id}`
+- `PATCH /reports/{id}/accept`
+- `PATCH /reports/{id}/reject`
+- `PATCH /reports/{id}`
+
+## Run Locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the app at the URL shown by Vite (usually `http://localhost:5173`).
+For production build:
 
-## Environment Configuration
+```bash
+npm run build
+npm run preview
+```
 
-Optional: create a `.env` file to override API base URL.
+## Environment Variables
+
+Optional override:
 
 ```env
 VITE_API_BASE_URL=https://amaarbackend-production.up.railway.app
 ```
 
-If not provided, the same production URL is used by default.
-
-## Best Practices Used
-
-- **Separation of concerns**: page UI, hook logic, and API services are independent.
-- **Reusability**: reusable `TextField` and layout components reduce duplication.
-- **Clean architecture**: predictable folders and route-level composition.
-- **Type safety**: strict TypeScript interfaces and inferred Zod form types.
-- **Production UX**: clear loading, success, and error states with graceful navigation.
+If omitted, the app falls back to the production Amaar backend URL above.
