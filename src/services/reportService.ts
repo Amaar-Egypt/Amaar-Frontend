@@ -55,7 +55,6 @@ interface UpdateReportPayload {
   assignedAuth?: string
   description?: string
   reviewComment?: string
-  rejectionReason?: string
 }
 
 const DEFAULT_REJECT_COMMENT = 'تم رفض البلاغ من الجهة المختصة.'

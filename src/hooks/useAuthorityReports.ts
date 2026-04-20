@@ -34,7 +34,6 @@ interface StatusUpdatePayload {
   priority?: ReportPriority
   assignedAuth?: string
   reviewComment?: string
-  rejectionReason?: string
 }
 
 interface FetchReportsOptions {
@@ -369,18 +368,37 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
       return false
     }
 
-    return performStatusUpdate({
-      reportId,
-      action: 'reject-execution',
-      payload: {
-        status: 'human_review',
-        reviewComment: normalizedReason,
-        rejectionReason: normalizedReason,
-      },
-      fallbackStatus: 'human_review',
-      fallbackReviewComment: normalizedReason,
-    })
-  }, [performStatusUpdate])
+    setActionErrorMessage(null)
+    setActionLoadingById((prev) => ({ ...prev, [reportId]: 'reject-execution' }))
+
+    try {
+      const response = await reportService.rejectReport(reportId, normalizedReason)
+      const nextStatus = response?.status ?? 'human_review'
+
+      syncReports(
+        reportsRef.current.map((report) =>
+          report.id === reportId
+            ? applyReportTransition(
+                report,
+                nextStatus,
+                response?.reviewComment ?? normalizedReason,
+              )
+            : report,
+        ),
+      )
+
+      return true
+    } catch (error) {
+      setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      return false
+    } finally {
+      setActionLoadingById((prev) => {
+        const next = { ...prev }
+        delete next[reportId]
+        return next
+      })
+    }
+  }, [syncReports])
 
   const resolveReport = useCallback(async (reportId: string) => {
     await performStatusUpdate({
