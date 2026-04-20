@@ -2,33 +2,7 @@ import type { AuthUser, UserRole } from '../types/auth'
 
 type UnknownObject = Record<string, unknown>
 
-const ADMIN_ROLE_ALIASES = new Set([
-  'admin',
-  'system_admin',
-  'system-admin',
-  'systemadmin',
-  'super_admin',
-  'super-admin',
-  'superadmin',
-])
-
-const AUTHORITY_ROLE_ALIASES = new Set([
-  'authority',
-  'authority_admin',
-  'authority-admin',
-  'authorityadmin',
-  'authority_user',
-  'authority-user',
-  'authorityuser',
-  'agency',
-])
-
-const CITIZEN_ROLE_ALIASES = new Set([
-  'citizen',
-  'user',
-  'public',
-  'reporter',
-])
+const VALID_BACKEND_ROLES = new Set<UserRole>(['admin', 'authority', 'citizen'])
 
 const isObject = (value: unknown): value is UnknownObject => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -76,16 +50,8 @@ export const normalizeUserRole = (roleValue: unknown): UserRole | null => {
     return null
   }
 
-  if (ADMIN_ROLE_ALIASES.has(normalizedRole)) {
-    return 'admin'
-  }
-
-  if (AUTHORITY_ROLE_ALIASES.has(normalizedRole)) {
-    return 'authority'
-  }
-
-  if (CITIZEN_ROLE_ALIASES.has(normalizedRole)) {
-    return 'citizen'
+  if (VALID_BACKEND_ROLES.has(normalizedRole as UserRole)) {
+    return normalizedRole as UserRole
   }
 
   return null
