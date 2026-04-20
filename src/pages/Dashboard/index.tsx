@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Pagination from '../../components/common/Pagination'
 import DashboardSidebar, {
@@ -8,8 +8,8 @@ import DashboardTopbar from '../../components/dashboard/DashboardTopbar'
 import ReportsFilters from '../../components/dashboard/ReportsFilters'
 import ReportsTable from '../../components/dashboard/ReportsTable'
 import StatCard from '../../components/dashboard/StatCard'
+import FullReportDetailsModal from '../../components/dashboard/FullReportDetailsModal'
 import useAuth from '../../hooks/useAuth'
-import reportService from '../../services/reportService'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
 import type { Report, ReportsFilterTab } from '../../types/report'
 import {
@@ -28,9 +28,8 @@ const DashboardPage = () => {
   const [searchQuery, setSearchQuery] = useState('')
   const [clientPage, setClientPage] = useState(1)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
-  const [isDetailsLoading, setIsDetailsLoading] = useState(false)
-  const [detailsErrorMessage, setDetailsErrorMessage] = useState<string | null>(null)
-  const detailsRequestRef = useRef(0)
+  const [isFullDetailsOpen, setIsFullDetailsOpen] = useState(false)
+  const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
 
   const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
   const isAuthorityViewer = user?.role === 'authority'
@@ -72,33 +71,17 @@ const DashboardPage = () => {
     navigate('/login', { replace: true })
   }
 
-  const handleSelectReport = useCallback(async (report: Report) => {
+  const handleSelectReport = useCallback((report: Report) => {
     setSelectedReport(report)
-    setDetailsErrorMessage(null)
+  }, [])
 
-    const requestId = detailsRequestRef.current + 1
-    detailsRequestRef.current = requestId
-    setIsDetailsLoading(true)
+  const handleOpenFullDetails = useCallback((report: Report) => {
+    setFullDetailsReportId(report.id)
+    setIsFullDetailsOpen(true)
+  }, [])
 
-    try {
-      const fullReport = await reportService.getReportById(report.id)
-
-      if (detailsRequestRef.current !== requestId) {
-        return
-      }
-
-      setSelectedReport(fullReport)
-    } catch {
-      if (detailsRequestRef.current !== requestId) {
-        return
-      }
-
-      setDetailsErrorMessage('تعذر تحميل التفاصيل الكاملة، تم عرض البيانات الأساسية.')
-    } finally {
-      if (detailsRequestRef.current === requestId) {
-        setIsDetailsLoading(false)
-      }
-    }
+  const handleCloseFullDetails = useCallback(() => {
+    setIsFullDetailsOpen(false)
   }, [])
 
   const reportsByFilter = getTabReports(activeFilterTab)
@@ -301,11 +284,16 @@ const DashboardPage = () => {
             onSelectSection={setActiveSection}
             selectedReport={selectedReport}
             viewerRole={user?.role ?? null}
-            isDetailsLoading={isDetailsLoading}
-            detailsErrorMessage={detailsErrorMessage}
+            onViewFullDetails={handleOpenFullDetails}
           />
         </div>
       </div>
+
+      <FullReportDetailsModal
+        isOpen={isFullDetailsOpen}
+        reportId={fullDetailsReportId}
+        onClose={handleCloseFullDetails}
+      />
     </div>
   )
 }

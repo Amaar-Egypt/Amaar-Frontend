@@ -5,6 +5,12 @@ import {
   getReportStatusLabel,
   getReportTypeLabel,
 } from '../../utils/reportPresentation'
+import {
+  getAiReviewOutcomeLabel,
+  getAiReviewOutcomeMessage,
+  getClassificationStatusLabel,
+  hasClassificationFailure,
+} from '../../utils/reportAiReviewPresentation'
 
 interface ReportDetailsPanelProps {
   report: Report | null
@@ -26,24 +32,34 @@ const getStatusTone = (status: Report['status']) => {
   return 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200'
 }
 
-const getAiReviewScore = (report: Report) => {
-  if (report.status === 'resolved') {
-    return 98
+const MAX_SUMMARY_DESCRIPTION_LENGTH = 120
+
+const formatAiConfidence = (aiConfidence: Report['aiConfidence']) => {
+  if (aiConfidence === null || !Number.isFinite(aiConfidence)) {
+    return 'غير متوفر'
   }
 
-  if (report.status === 'in_progress') {
-    return 95
+  const normalizedConfidence = aiConfidence >= 0 && aiConfidence <= 1
+    ? aiConfidence * 100
+    : aiConfidence
+
+  const boundedConfidence = Math.max(0, Math.min(100, normalizedConfidence))
+  return `${Math.round(boundedConfidence)}%`
+}
+
+const getSummaryDescription = (report: Report) => {
+  const sourceText = report.descriptionAr ?? report.description
+  const normalized = sourceText.trim()
+
+  if (!normalized) {
+    return 'غير متوفر'
   }
 
-  if (report.status === 'pending') {
-    return 92
+  if (normalized.length <= MAX_SUMMARY_DESCRIPTION_LENGTH) {
+    return normalized
   }
 
-  if (report.status === 'ai_review') {
-    return 88
-  }
-
-  return 72
+  return `${normalized.slice(0, MAX_SUMMARY_DESCRIPTION_LENGTH).trim()}...`
 }
 
 const ReportDetailsPanel = ({
@@ -77,26 +93,12 @@ const ReportDetailsPanel = ({
     )
   }
 
-  const reviewChecklist = [
-    {
-      title: 'هذا البلاغ يطابق معايير الجودة',
-      passed: report.description.trim().length >= 10,
-    },
-    {
-      title: 'صور مرفقة واضحة',
-      passed: Boolean(report.imageUrl),
-    },
-    {
-      title: 'خرائط مرفقة',
-      passed: Boolean(report.location),
-    },
-    {
-      title: 'معلومات مكتملة',
-      passed: Boolean(report.type || report.typeAr),
-    },
-  ]
-
-  const reviewScore = getAiReviewScore(report)
+  const confidenceLabel = formatAiConfidence(report.aiConfidence)
+  const classificationStatusLabel = getClassificationStatusLabel(report.classificationStatus)
+  const hasReviewFailure = hasClassificationFailure(report)
+  const reviewOutcomeLabel = getAiReviewOutcomeLabel(report)
+  const reviewOutcomeMessage = getAiReviewOutcomeMessage(report)
+  const displayedDescription = getSummaryDescription(report)
 
   return (
     <article
@@ -120,7 +122,7 @@ const ReportDetailsPanel = ({
           تفاصيل البلاغ: {getReportTypeLabel(report)}
         </p>
         <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
-          {report.description}
+          {displayedDescription}
         </p>
       </div>
 
@@ -134,27 +136,23 @@ const ReportDetailsPanel = ({
       </div>
 
       <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-100/70 p-3 dark:border-white/10 dark:bg-slate-900/50">
-        <p className="text-lg font-extrabold text-slate-800 dark:text-slate-100">
-          المراجعة الذكية: {reviewScore}%
+        <p className="text-sm font-extrabold text-slate-800 dark:text-slate-100">
+          ثقة المراجعة الذكية: {confidenceLabel}
         </p>
 
-        <ul className="mt-2 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-          {reviewChecklist.map((item) => (
-            <li key={item.title} className="flex items-start gap-2">
-              <span
-                className={`mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs ${
-                  item.passed
-                    ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                    : 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
-                }`}
-                aria-hidden="true"
-              >
-                {item.passed ? '✓' : '!'}
-              </span>
-              <span>{item.title}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-2 space-y-1.5 text-sm text-slate-600 dark:text-slate-300">
+          <p>
+            حالة التصنيف: <span className="font-semibold">{classificationStatusLabel}</span>
+          </p>
+
+          <p className={`rounded-lg border px-2.5 py-2 text-xs font-semibold ${
+            hasReviewFailure
+              ? 'border-rose-300/70 bg-rose-500/10 text-rose-700 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200'
+              : 'border-emerald-300/70 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200'
+          }`}>
+            {reviewOutcomeLabel}: {reviewOutcomeMessage}
+          </p>
+        </div>
       </div>
 
       <button

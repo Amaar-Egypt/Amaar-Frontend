@@ -3,6 +3,7 @@ import type { ApiEnvelope } from '../types/api'
 import type {
   DashboardStats,
   Report,
+  ReportClassificationStatus,
   ReportLocation,
   ReportPriority,
   ReportsPagination,
@@ -22,14 +23,24 @@ import {
 
 interface ReportApiModel {
   id: string
-  description: string
-  imageUrl: string
+  userId?: string | number | null
+  description?: string | null
+  descriptionAr?: string | null
+  imageUrl?: string | null
   type?: ReportTypeCode | null
   typeAr?: string | null
   priority: ReportPriority
   priorityReasonAr?: string | null
   status: ReportStatus
   reviewComment?: string | null
+  citizenFixable?: boolean | number | string | null
+  aiConfidence?: number | string | null
+  classificationStatus?: string | null
+  classificationAttempts?: number | string | null
+  classificationError?: string | null
+  classifiedAt?: string | null
+  reviewedBy?: unknown
+  reviewedAt?: string | null
   location?: ReportLocation | null
   createdAt: string
   assignedAuth?: string | null
@@ -81,6 +92,12 @@ const REPORT_TYPE_CODES: ReportTypeCode[] = [
   'transformer',
   'other',
 ]
+const CLASSIFICATION_STATUSES: ReportClassificationStatus[] = [
+  'pending',
+  'processing',
+  'completed',
+  'failed',
+]
 
 const isObject = (value: unknown): value is UnknownObject => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -113,6 +130,141 @@ const pickStringField = (source: UnknownObject, keys: string[]): string | null =
     if (value) {
       return value
     }
+  }
+
+  return null
+}
+
+const toBoolean = (value: unknown): boolean | null => {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value === 1) {
+      return true
+    }
+
+    if (value === 0) {
+      return false
+    }
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+
+    if (!normalized) {
+      return null
+    }
+
+    if (['true', '1', 'yes'].includes(normalized)) {
+      return true
+    }
+
+    if (['false', '0', 'no'].includes(normalized)) {
+      return false
+    }
+  }
+
+  return null
+}
+
+const pickBooleanField = (source: UnknownObject, keys: string[]): boolean | null => {
+  for (const key of keys) {
+    const value = toBoolean(source[key])
+
+    if (value !== null) {
+      return value
+    }
+  }
+
+  return null
+}
+
+const toConfidenceNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+
+    if (!trimmed) {
+      return null
+    }
+
+    const normalized = trimmed.endsWith('%') ? trimmed.slice(0, -1) : trimmed
+    const parsed = Number(normalized)
+
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+const pickConfidenceField = (source: UnknownObject, keys: string[]): number | null => {
+  for (const key of keys) {
+    const value = toConfidenceNumber(source[key])
+
+    if (value !== null) {
+      return value
+    }
+  }
+
+  return null
+}
+
+const normalizeClassificationStatus = (
+  value: unknown,
+): ReportClassificationStatus | null => {
+  const normalized = toNonEmptyString(value)?.toLowerCase()
+
+  if (!normalized) {
+    return null
+  }
+
+  if (CLASSIFICATION_STATUSES.includes(normalized as ReportClassificationStatus)) {
+    return normalized as ReportClassificationStatus
+  }
+
+  return null
+}
+
+const extractUserId = (source: UnknownObject): string | null => {
+  const directUserId = pickStringField(source, ['userId', 'user_id'])
+
+  if (directUserId) {
+    return directUserId
+  }
+
+  const user = source.user
+  if (isObject(user)) {
+    return pickStringField(user, ['id', '_id', 'userId', 'user_id'])
+  }
+
+  return null
+}
+
+const extractReviewedBy = (source: UnknownObject): string | null => {
+  const directReviewer = source.reviewedBy ?? source.reviewed_by
+  const directStringReviewer = toNonEmptyString(directReviewer)
+
+  if (directStringReviewer) {
+    return directStringReviewer
+  }
+
+  if (isObject(directReviewer)) {
+    return pickStringField(directReviewer, [
+      'id',
+      '_id',
+      'name',
+      'fullName',
+      'full_name',
+      'email',
+      'username',
+    ])
   }
 
   return null
@@ -310,22 +462,44 @@ const extractSummaryFromPayload = (payload: unknown): DashboardStats | null => {
 }
 
 const normalizeReport = (raw: ReportApiModel): Report => {
+  const source = raw as unknown as UnknownObject
   const normalizedType = isReportTypeCode(raw.type)
     ? raw.type
     : raw.type
       ? 'other'
       : null
 
+  const descriptionAr = pickStringField(source, ['descriptionAr', 'description_ar'])
+  const description = toNonEmptyString(raw.description) ?? ''
+
   return {
     id: raw.id,
-    description: raw.description,
-    imageUrl: raw.imageUrl,
+    userId: extractUserId(source),
+    description,
+    descriptionAr,
+    imageUrl: toNonEmptyString(raw.imageUrl) ?? '',
     type: normalizedType,
     typeAr: raw.typeAr ?? null,
     priority: raw.priority,
     priorityReasonAr: raw.priorityReasonAr ?? null,
     status: raw.status,
     reviewComment: raw.reviewComment ?? null,
+    citizenFixable: pickBooleanField(source, ['citizenFixable', 'citizen_fixable']),
+    aiConfidence: pickConfidenceField(source, ['aiConfidence', 'ai_confidence']),
+    classificationStatus: normalizeClassificationStatus(
+      source.classificationStatus ?? source.classification_status,
+    ),
+    classificationAttempts: pickNumericField(source, [
+      'classificationAttempts',
+      'classification_attempts',
+    ]),
+    classificationError: pickStringField(source, [
+      'classificationError',
+      'classification_error',
+    ]),
+    classifiedAt: pickStringField(source, ['classifiedAt', 'classified_at']),
+    reviewedBy: extractReviewedBy(source),
+    reviewedAt: pickStringField(source, ['reviewedAt', 'reviewed_at']),
     location: raw.location ?? null,
     createdAt: raw.createdAt,
     assignedAuth: extractAssignedAuthorityId(raw),

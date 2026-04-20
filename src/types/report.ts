@@ -7,6 +7,12 @@ export type ReportStatus =
   | 'in_progress'
   | 'resolved'
 
+export type ReportClassificationStatus =
+  | 'pending'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+
 export type ReportTypeCode =
   | 'pothole'
   | 'garbage'
@@ -31,7 +37,9 @@ export interface ReportLocation {
 
 export interface Report {
   id: string
+  userId: string | null
   description: string
+  descriptionAr: string | null
   imageUrl: string
   type: ReportTypeCode | null
   typeAr: string | null
@@ -39,6 +47,14 @@ export interface Report {
   priorityReasonAr: string | null
   status: ReportStatus
   reviewComment: string | null
+  citizenFixable: boolean | null
+  aiConfidence: number | null
+  classificationStatus: ReportClassificationStatus | null
+  classificationAttempts: number | null
+  classificationError: string | null
+  classifiedAt: string | null
+  reviewedBy: string | null
+  reviewedAt: string | null
   location: ReportLocation | null
   createdAt: string
   assignedAuth: string | null
