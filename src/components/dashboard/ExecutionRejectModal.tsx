@@ -77,7 +77,7 @@ const ExecutionRejectModal = ({
         role="dialog"
         aria-modal="true"
         aria-label="سبب رفض التنفيذ"
-        className="relative w-full max-w-xl rounded-3xl border border-slate-200/75 bg-white/90 p-5 shadow-[0_28px_70px_rgba(15,23,42,0.35)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/92 dark:shadow-[0_35px_90px_rgba(2,6,23,0.55)] sm:p-6"
+        className="relative w-full max-w-xl rounded-3xl border border-slate-200/75 bg-white/95 p-5 shadow-[0_28px_70px_rgba(15,23,42,0.35)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/95 dark:shadow-[0_35px_90px_rgba(2,6,23,0.55)] sm:p-6"
       >
         <h3 className="text-lg font-extrabold text-slate-800 dark:text-slate-100">سبب رفض التنفيذ</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
@@ -98,7 +98,7 @@ const ExecutionRejectModal = ({
             }
           }}
           placeholder="اكتب سبب الرفض هنا..."
-          className="mt-2 min-h-32 w-full resize-y rounded-2xl border border-slate-200 bg-white/90 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-200/60 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-100 dark:focus:border-rose-400/70 dark:focus:ring-rose-500/20"
+          className="mt-2 min-h-32 w-full resize-y rounded-2xl border border-slate-300/80 bg-slate-50/90 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-rose-400 focus:ring-2 focus:ring-rose-200/60 dark:border-white/10 dark:bg-slate-800/75 dark:text-slate-100 dark:focus:border-rose-400/70 dark:focus:ring-rose-500/20"
         />
 
         {validationError ? (

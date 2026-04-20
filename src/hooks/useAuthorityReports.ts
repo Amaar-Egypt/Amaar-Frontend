@@ -74,9 +74,13 @@ const filterReportsForViewer = (allReports: Report[], viewer: AuthUser | null) =
   const viewerAuthorityId = normalizeIdentifier(viewer.authorityId)
   const viewerUserId = normalizeIdentifier(viewer.id)
 
-  const allowedAuthorityKey = viewerAuthorityId ?? viewerUserId
+  const allowedAuthorityKeys = new Set(
+    [viewerAuthorityId, viewerUserId].filter(
+      (value): value is string => Boolean(value),
+    ),
+  )
 
-  if (!allowedAuthorityKey) {
+  if (!allowedAuthorityKeys.size) {
     return []
   }
 
@@ -91,7 +95,7 @@ const filterReportsForViewer = (allReports: Report[], viewer: AuthUser | null) =
       return false
     }
 
-    return reportAuthorityKey === allowedAuthorityKey
+    return allowedAuthorityKeys.has(reportAuthorityKey)
   })
 }
 
