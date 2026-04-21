@@ -10,12 +10,12 @@ import type {
   ReportsQuery,
   ReportStatus,
   ReportTypeCode,
+  ReportTypeDefinition,
 } from '../types/report'
 import { normalizeDashboardStats } from '../utils/reportStats'
 import {
   extractResponseData,
   extractResponseMessage,
-  extractResponsePagination,
 } from '../utils/apiResponse'
 
 interface ReportApiModel {
@@ -43,6 +43,22 @@ interface ReportApiModel {
   assignedAuth?: string | null
 }
 
+interface ReportTypeApiModel {
+  code?: string | null
+  type?: string | null
+  value?: string | null
+  key?: string | null
+  id?: string | number | null
+  _id?: string | number | null
+  label?: string | null
+  labelAr?: string | null
+  name?: string | null
+  nameAr?: string | null
+  typeAr?: string | null
+  category?: string | null
+  categoryAr?: string | null
+}
+
 interface ReviewActionData {
   id: string
   status: ReportStatus
@@ -66,39 +82,45 @@ interface UpdateReportPayload {
 }
 
 const DEFAULT_REJECT_COMMENT = 'تم رفض البلاغ من الجهة المختصة.'
-const REPORT_TYPE_CODES: ReportTypeCode[] = [
-  'pothole',
-  'garbage',
-  'broken_cable_electric',
-  'broken_cable_telecom',
-  'streetlight',
-  'sewage',
-  'water_leak',
-  'gas_leak',
-  'traffic_signal',
-  'sidewalk_damage',
-  'fallen_tree',
-  'road_obstruction',
-  'manhole_cover',
-  'transformer',
-  'other',
-]
 const CLASSIFICATION_STATUSES: ReportClassificationStatus[] = [
   'pending',
   'processing',
   'completed',
   'failed',
 ]
+const PAGINATION_TOTAL_KEYS = [
+  'total',
+  'totalItems',
+  'totalCount',
+  'count',
+  'total_records',
+  'totalRecords',
+  'recordsTotal',
+]
+const PAGINATION_LIMIT_KEYS = [
+  'limit',
+  'perPage',
+  'pageSize',
+  'page_size',
+  'per_page',
+]
+const PAGINATION_PAGE_KEYS = [
+  'page',
+  'currentPage',
+  'pageNumber',
+  'page_index',
+  'pageIndex',
+]
+const PAGINATION_TOTAL_PAGES_KEYS = [
+  'totalPages',
+  'pages',
+  'pageCount',
+  'total_pages',
+  'page_count',
+]
 
 const isObject = (value: unknown): value is UnknownObject => {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-const isReportTypeCode = (value: unknown): value is ReportTypeCode => {
-  return (
-    typeof value === 'string' &&
-    REPORT_TYPE_CODES.includes(value as ReportTypeCode)
-  )
 }
 
 const toNonEmptyString = (value: unknown): string | null => {
@@ -113,6 +135,9 @@ const toNonEmptyString = (value: unknown): string | null => {
 
   return null
 }
+
+const REPORTS_SEARCH_PARAM =
+  toNonEmptyString(import.meta.env.VITE_REPORTS_SEARCH_PARAM) ?? 'search'
 
 const pickStringField = (source: UnknownObject, keys: string[]): string | null => {
   for (const key of keys) {
@@ -355,11 +380,13 @@ const pickNumericField = (
 
 const normalizeReport = (raw: ReportApiModel): Report => {
   const source = raw as unknown as UnknownObject
-  const normalizedType = isReportTypeCode(raw.type)
-    ? raw.type
-    : raw.type
-      ? 'other'
-      : null
+  const normalizedType = pickStringField(source, ['type', 'reportType', 'report_type'])
+  const normalizedTypeAr = pickStringField(source, [
+    'typeAr',
+    'type_ar',
+    'reportTypeAr',
+    'report_type_ar',
+  ])
 
   const descriptionAr = pickStringField(source, ['descriptionAr', 'description_ar'])
   const description = toNonEmptyString(raw.description) ?? ''
@@ -370,8 +397,8 @@ const normalizeReport = (raw: ReportApiModel): Report => {
     description,
     descriptionAr,
     imageUrl: toNonEmptyString(raw.imageUrl) ?? '',
-    type: normalizedType,
-    typeAr: raw.typeAr ?? null,
+    type: normalizedType as ReportTypeCode | null,
+    typeAr: normalizedTypeAr,
     priority: raw.priority,
     priorityReasonAr: raw.priorityReasonAr ?? null,
     status: raw.status,
@@ -402,29 +429,304 @@ const hasReportIdentity = (value: unknown): value is ReportApiModel => {
   return isObject(value) && typeof value.id === 'string'
 }
 
+const normalizeReportsQuery = (
+  query?: ReportsQuery,
+): Record<string, string | number> | undefined => {
+  if (!query) {
+    return undefined
+  }
+
+  const normalized: Record<string, string | number> = {}
+
+  if (query.status) {
+    normalized.status = query.status
+  }
+
+  if (query.priority) {
+    normalized.priority = query.priority
+  }
+
+  const type = toNonEmptyString(query.type)
+  if (type) {
+    normalized.type = type
+  }
+
+  const search = toNonEmptyString(query.search)
+  if (search) {
+    normalized[REPORTS_SEARCH_PARAM] = search
+  }
+
+  const assignedAuth = toNonEmptyString(query.assignedAuth)
+  if (assignedAuth) {
+    normalized.assignedAuth = assignedAuth
+  }
+
+  if (typeof query.page === 'number' && Number.isFinite(query.page)) {
+    normalized.page = query.page
+  }
+
+  if (typeof query.limit === 'number' && Number.isFinite(query.limit)) {
+    normalized.limit = query.limit
+  }
+
+  return Object.keys(normalized).length ? normalized : undefined
+}
+
+const pickReportsArray = (source: UnknownObject): unknown[] | null => {
+  const candidates: unknown[] = [
+    source.reports,
+    source.items,
+    source.results,
+    source.data,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+const extractReportsPayload = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (!isObject(payload)) {
+    return []
+  }
+
+  const container = payload as UnknownObject
+  const direct = pickReportsArray(container)
+
+  if (direct) {
+    return direct
+  }
+
+  const nestedCandidates = [container.data, container.result]
+
+  for (const candidate of nestedCandidates) {
+    if (isObject(candidate)) {
+      const nested = pickReportsArray(candidate as UnknownObject)
+      if (nested) {
+        return nested
+      }
+    }
+  }
+
+  return []
+}
+
+const normalizeReportsPagination = (
+  source: UnknownObject,
+  fallback: { page: number; limit: number },
+): ReportsPagination | null => {
+  const total = pickNumericField(source, PAGINATION_TOTAL_KEYS)
+
+  if (total === null) {
+    return null
+  }
+
+  const limit = pickNumericField(source, PAGINATION_LIMIT_KEYS) ?? fallback.limit
+  const page = pickNumericField(source, PAGINATION_PAGE_KEYS) ?? fallback.page
+  const totalPages =
+    pickNumericField(source, PAGINATION_TOTAL_PAGES_KEYS) ??
+    Math.max(1, Math.ceil(total / Math.max(1, limit)))
+
+  return {
+    total: Math.max(0, Math.trunc(total)),
+    limit: Math.max(1, Math.trunc(limit)),
+    page: Math.max(1, Math.trunc(page)),
+    totalPages: Math.max(1, Math.trunc(totalPages)),
+  }
+}
+
+const extractReportsPagination = (
+  payload: unknown,
+  fallback: { page: number; limit: number },
+): ReportsPagination | null => {
+  if (!isObject(payload)) {
+    return null
+  }
+
+  const container = payload as UnknownObject
+  const pagination = container.pagination
+
+  if (isObject(pagination)) {
+    const normalized = normalizeReportsPagination(pagination, fallback)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  const meta = container.meta ?? container.metadata
+
+  if (isObject(meta)) {
+    const metaPagination = (meta as UnknownObject).pagination
+
+    if (isObject(metaPagination)) {
+      const normalized = normalizeReportsPagination(metaPagination, fallback)
+      if (normalized) {
+        return normalized
+      }
+    }
+
+    const normalized = normalizeReportsPagination(meta as UnknownObject, fallback)
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return normalizeReportsPagination(container, fallback)
+}
+
+const extractReportTypesPayload = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (!isObject(payload)) {
+    return []
+  }
+
+  const container = payload as UnknownObject
+  const candidates: unknown[] = [
+    container.types,
+    container.reportTypes,
+    container.items,
+    container.results,
+    container.data,
+  ]
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate
+    }
+  }
+
+  return []
+}
+
+const normalizeReportTypeDefinition = (raw: unknown): ReportTypeDefinition | null => {
+  if (typeof raw === 'string') {
+    const code = toNonEmptyString(raw)
+
+    if (!code) {
+      return null
+    }
+
+    return {
+      code,
+      label: code,
+    }
+  }
+
+  if (!isObject(raw)) {
+    return null
+  }
+
+  const source = raw as ReportTypeApiModel & UnknownObject
+
+  const code = pickStringField(source, ['code', 'type', 'value', 'key', 'id', '_id'])
+
+  if (!code) {
+    return null
+  }
+
+  const label =
+    pickStringField(source, [
+      'labelAr',
+      'typeAr',
+      'nameAr',
+      'categoryAr',
+      'label',
+      'name',
+      'type',
+      'value',
+      'code',
+    ]) ?? code
+
+  return {
+    code,
+    label,
+  }
+}
+
+const listReportTypes = async (): Promise<ReportTypeDefinition[]> => {
+  const response = await apiClient.get<ApiEnvelope<unknown> | unknown>('/reports/types')
+  const payload = extractResponseData<unknown>(response.data)
+  const rawList = extractReportTypesPayload(payload)
+
+  const dedupedByCode = new Map<string, ReportTypeDefinition>()
+
+  for (const rawType of rawList) {
+    const normalized = normalizeReportTypeDefinition(rawType)
+
+    if (!normalized || dedupedByCode.has(normalized.code)) {
+      continue
+    }
+
+    dedupedByCode.set(normalized.code, normalized)
+  }
+
+  return Array.from(dedupedByCode.values())
+}
+
 const listReports = async (query?: ReportsQuery): Promise<ReportsResult> => {
+  const normalizedQuery = normalizeReportsQuery(query)
+
   const response = await apiClient.get<ApiEnvelope<ReportApiModel[]> | ReportApiModel[]>('/reports', {
-    params: query,
+    params: normalizedQuery,
   })
 
-  const payload = extractResponseData<ReportApiModel[] | ReportApiModel>(response.data)
-  const rawList = Array.isArray(payload)
-    ? payload
-    : payload
-      ? [payload]
-      : []
+  const payload = extractResponseData<unknown>(response.data) ?? response.data
+  const rawList = extractReportsPayload(payload) as ReportApiModel[]
+  const fallbackPagination = {
+    page: query?.page ?? 1,
+    limit: query?.limit ?? Math.max(1, rawList.length),
+  }
+  const pagination =
+    extractReportsPagination(response.data, fallbackPagination) ??
+    extractReportsPagination(payload, fallbackPagination) ??
+    null
 
   return {
     reports: rawList.map(normalizeReport),
-    pagination: extractResponsePagination<ReportsPagination>(response.data) ?? null,
+    pagination,
   }
 }
 
 const getTotalFromPagedResult = (result: ReportsResult): number => {
-  return result.pagination?.total ?? result.reports.length
+  return result.pagination?.total ?? 0
 }
 
-const getAuthorityReportsStats = async (): Promise<DashboardStats> => {
+const getAuthorityReportsStats = async (
+  scopeQuery?: Pick<ReportsQuery, 'assignedAuth' | 'priority' | 'type' | 'search'>,
+): Promise<DashboardStats> => {
+  const assignedAuth = toNonEmptyString(scopeQuery?.assignedAuth)
+  const priority = scopeQuery?.priority
+  const type = toNonEmptyString(scopeQuery?.type)
+  const search = toNonEmptyString(scopeQuery?.search)
+  const scopedQuery: Pick<ReportsQuery, 'assignedAuth' | 'priority' | 'type' | 'search'> = {}
+
+  if (assignedAuth) {
+    scopedQuery.assignedAuth = assignedAuth
+  }
+
+  if (priority) {
+    scopedQuery.priority = priority
+  }
+
+  if (type) {
+    scopedQuery.type = type
+  }
+
+  if (search) {
+    scopedQuery.search = search
+  }
+
   const [
     allReportsResult,
     aiReviewResult,
@@ -433,12 +735,12 @@ const getAuthorityReportsStats = async (): Promise<DashboardStats> => {
     inProgressResult,
     resolvedResult,
   ] = await Promise.all([
-    listReports({ page: 1, limit: 1 }),
-    listReports({ page: 1, limit: 1, status: 'ai_review' }),
-    listReports({ page: 1, limit: 1, status: 'human_review' }),
-    listReports({ page: 1, limit: 1, status: 'pending' }),
-    listReports({ page: 1, limit: 1, status: 'in_progress' }),
-    listReports({ page: 1, limit: 1, status: 'resolved' }),
+    listReports({ ...scopedQuery, page: 1, limit: 1 }),
+    listReports({ ...scopedQuery, page: 1, limit: 1, status: 'ai_review' }),
+    listReports({ ...scopedQuery, page: 1, limit: 1, status: 'human_review' }),
+    listReports({ ...scopedQuery, page: 1, limit: 1, status: 'pending' }),
+    listReports({ ...scopedQuery, page: 1, limit: 1, status: 'in_progress' }),
+    listReports({ ...scopedQuery, page: 1, limit: 1, status: 'resolved' }),
   ])
 
   return normalizeDashboardStats({
@@ -493,6 +795,7 @@ const updateReport = async (
 }
 
 const reportService = {
+  listReportTypes,
   listReports,
   getAuthorityReportsStats,
   getReportById,

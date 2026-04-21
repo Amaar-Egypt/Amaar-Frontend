@@ -16,6 +16,7 @@ import { getApiErrorMessage } from '../../utils/apiResponse'
 interface FullReportDetailsModalProps {
   isOpen: boolean
   reportId: string | null
+  typeLabelsByCode?: Record<string, string>
   onClose: () => void
 }
 
@@ -57,7 +58,12 @@ const formatLocation = (report: Report) => {
   return `${report.location.lat} ، ${report.location.lng}`
 }
 
-const FullReportDetailsModal = ({ isOpen, reportId, onClose }: FullReportDetailsModalProps) => {
+const FullReportDetailsModal = ({
+  isOpen,
+  reportId,
+  typeLabelsByCode = {},
+  onClose,
+}: FullReportDetailsModalProps) => {
   const [report, setReport] = useState<Report | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -170,7 +176,7 @@ const FullReportDetailsModal = ({ isOpen, reportId, onClose }: FullReportDetails
                   {report.imageUrl ? (
                     <img
                       src={report.imageUrl}
-                      alt={getReportTypeLabel(report)}
+                      alt={getReportTypeLabel(report, typeLabelsByCode)}
                       className="h-72 w-full object-cover"
                     />
                   ) : (
@@ -194,7 +200,7 @@ const FullReportDetailsModal = ({ isOpen, reportId, onClose }: FullReportDetails
               <div className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/55 p-4 text-sm text-slate-300">
                 <h4 className="text-sm font-extrabold text-slate-100">بيانات البلاغ</h4>
 
-                <p>نوع البلاغ: <span className="font-semibold text-slate-100">{getReportTypeLabel(report)}</span></p>
+                <p>نوع البلاغ: <span className="font-semibold text-slate-100">{getReportTypeLabel(report, typeLabelsByCode)}</span></p>
                 <p>الأولوية: <span className="font-semibold text-slate-100">{getPriorityLabel(report.priority)}</span></p>
                 <p>سبب الأولوية: <span className="font-semibold text-slate-100">{normalizeText(report.priorityReasonAr)}</span></p>
                 <p>قابل للإصلاح من المواطن: <span className="font-semibold text-slate-100">{report.citizenFixable === null ? FALLBACK_TEXT : report.citizenFixable ? 'نعم' : 'لا'}</span></p>

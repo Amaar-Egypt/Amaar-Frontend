@@ -15,6 +15,7 @@ interface ReportsTableProps {
   reports: Report[]
   viewerRole?: UserRole | null
   selectedReportId?: string | null
+  typeLabelsByCode?: Record<string, string>
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
   onReject: (reportId: string) => void
@@ -57,6 +58,7 @@ const ReportsTable = ({
   reports,
   viewerRole = null,
   selectedReportId = null,
+  typeLabelsByCode = {},
   actionLoadingById,
   onAccept,
   onReject,
@@ -170,7 +172,7 @@ const ReportsTable = ({
                       <div className="h-10 w-10 overflow-hidden rounded-lg border border-slate-200/80 bg-slate-100 dark:border-white/10 dark:bg-slate-800">
                         <img
                           src={report.imageUrl}
-                          alt={getReportTypeLabel(report)}
+                          alt={getReportTypeLabel(report, typeLabelsByCode)}
                           className="h-full w-full object-cover"
                           loading="lazy"
                           onError={(event) => {
@@ -179,7 +181,7 @@ const ReportsTable = ({
                         />
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-semibold">{getReportTypeLabel(report)}</td>
+                    <td className="px-4 py-3 font-semibold">{getReportTypeLabel(report, typeLabelsByCode)}</td>
                     <td className={`px-4 py-3 text-xs font-bold sm:text-sm ${getPriorityClassName(report.priority)}`}>
                       {getPriorityLabel(report.priority)}
                     </td>

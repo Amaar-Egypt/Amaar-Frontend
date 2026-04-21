@@ -5,13 +5,10 @@ import type {
   Report,
   ReportPriority,
   ReportsPagination,
-  ReportsFilterTab,
   ReportStatus,
+  ReportTypeCode,
 } from '../types/report'
-import {
-  calculateDashboardStatsFromReports,
-  createEmptyDashboardStats,
-} from '../utils/reportStats'
+import { createEmptyDashboardStats } from '../utils/reportStats'
 import { getApiErrorMessage } from '../utils/apiResponse'
 import type { AuthUser } from '../types/auth'
 
@@ -19,8 +16,6 @@ const DEFAULT_ERROR_MESSAGE = 'حدث خطأ أثناء تحميل البلاغ�
 const DEFAULT_ACTION_ERROR_MESSAGE = 'تعذر تنفيذ الإجراء على البلاغ.'
 const DEFAULT_PENDING_REJECT_REASON_ERROR = 'سبب رفض التنفيذ مطلوب.'
 const DEFAULT_PAGE_SIZE = 10
-const isReportVisibilityDebugEnabled =
-  import.meta.env.DEV || import.meta.env.VITE_DEBUG_REPORT_VISIBILITY === 'true'
 
 type ReportActionKind =
   | 'accept-ai'
@@ -43,60 +38,38 @@ interface FetchReportsOptions {
   page?: number
   limit?: number
   status?: ReportStatus
+  priority?: ReportPriority
+  type?: ReportTypeCode
+  search?: string
+  assignedAuth?: string
 }
 
 interface UseAuthorityReportsOptions {
   viewer: AuthUser | null
 }
 
-const AUTHORITY_VISIBLE_STATUSES: ReportStatus[] = [
-  'ai_review',
-  'human_review',
-  'pending',
-  'in_progress',
-  'resolved',
-]
-
-const normalizeIdentifier = (value: string | null | undefined) => {
-  if (!value) {
-    return null
-  }
-
-  const normalized = value.trim().toLowerCase()
-  return normalized || null
+interface ReportsQuerySnapshot {
+  page: number
+  limit: number
+  status?: ReportStatus
+  priority?: ReportPriority
+  type?: ReportTypeCode
+  search?: string
+  assignedAuth?: string
 }
 
-const filterReportsForViewer = (allReports: Report[], viewer: AuthUser | null) => {
+const resolveAuthorityFilter = (viewer: AuthUser | null): string | undefined => {
   if (!viewer || viewer.role !== 'authority') {
-    return allReports
+    return undefined
   }
 
-  const viewerAuthorityId = normalizeIdentifier(viewer.authorityId)
-  const viewerUserId = normalizeIdentifier(viewer.id)
-
-  const allowedAuthorityKeys = new Set(
-    [viewerAuthorityId, viewerUserId].filter(
-      (value): value is string => Boolean(value),
-    ),
-  )
-
-  if (!allowedAuthorityKeys.size) {
-    return []
+  const authorityId = viewer.authorityId?.trim()
+  if (authorityId) {
+    return authorityId
   }
 
-  return allReports.filter((report) => {
-    if (!AUTHORITY_VISIBLE_STATUSES.includes(report.status)) {
-      return false
-    }
-
-    const reportAuthorityKey = normalizeIdentifier(report.assignedAuth)
-
-    if (!reportAuthorityKey) {
-      return false
-    }
-
-    return allowedAuthorityKeys.has(reportAuthorityKey)
-  })
+  const userId = viewer.id.trim()
+  return userId || undefined
 }
 
 const applyReportTransition = (
@@ -134,6 +107,10 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   const [actionLoadingById, setActionLoadingById] = useState<Record<string, ReportActionKind>>({})
 
   const reportsRef = useRef<Report[]>([])
+  const latestQueryRef = useRef<ReportsQuerySnapshot>({
+    page: 1,
+    limit: DEFAULT_PAGE_SIZE,
+  })
 
   const syncReports = useCallback((nextReports: Report[]) => {
     reportsRef.current = nextReports
@@ -142,16 +119,19 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
 
   const refreshCounts = useCallback(async () => {
     setIsCountsLoading(true)
+    const assignedAuth = resolveAuthorityFilter(viewer)
 
     try {
-      const summary = await reportService.getAuthorityReportsStats()
+      const summary = await reportService.getAuthorityReportsStats(
+        assignedAuth ? { assignedAuth } : undefined,
+      )
       setCounts(summary)
     } catch {
-      setCounts(calculateDashboardStatsFromReports(reportsRef.current))
+      // Keep previous totals if backend stats are unavailable.
     } finally {
       setIsCountsLoading(false)
     }
-  }, [])
+  }, [viewer])
 
   const fetchReports = useCallback(async (options: FetchReportsOptions = {}) => {
     const {
@@ -160,6 +140,10 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
       page,
       limit,
       status,
+      priority,
+      type,
+      search,
+      assignedAuth: requestedAssignedAuth,
     } = options
 
     const resolvedPage = page ?? 1
@@ -174,49 +158,47 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     setErrorMessage(null)
 
     try {
-      const pageResponse = await reportService.listReports({
+      const resolvedRoleAssignedAuth = resolveAuthorityFilter(viewer)
+      const assignedAuth = resolvedRoleAssignedAuth ?? requestedAssignedAuth?.trim()
+      const normalizedSearch = search?.trim() || undefined
+      const statsScope = {
+        assignedAuth,
+        priority,
+        type,
+        search: normalizedSearch,
+      }
+
+      latestQueryRef.current = {
         page: resolvedPage,
         limit: resolvedLimit,
         status,
-      })
-
-      const roleAwareReports = filterReportsForViewer(pageResponse.reports, viewer)
-
-      if (isReportVisibilityDebugEnabled) {
-        const reportsSample = pageResponse.reports.slice(0, 5).map((report) => ({
-          id: report.id,
-          status: report.status,
-          assignedAuth: report.assignedAuth,
-        }))
-
-        const normalizedViewerAuthorityId = normalizeIdentifier(viewer?.authorityId)
-        const normalizedViewerUserId = normalizeIdentifier(viewer?.id)
-
-        console.log('[useAuthorityReports] visibility debug', {
-          viewerRole: viewer?.role ?? null,
-          viewerAuthorityId: viewer?.authorityId ?? null,
-          normalizedViewerAuthorityId,
-          normalizedViewerUserId,
-          appliedAuthorityKey: normalizedViewerAuthorityId ?? normalizedViewerUserId,
-          page: resolvedPage,
-          pageSize: resolvedLimit,
-          totalFetchedReports: pageResponse.reports.length,
-          totalVisibleReports: roleAwareReports.length,
-          reportsSample,
-        })
+        priority,
+        type,
+        search: normalizedSearch,
+        assignedAuth,
       }
 
-      syncReports(roleAwareReports)
+      const pageResponse = await reportService.listReports({
+        assignedAuth,
+        page: resolvedPage,
+        limit: resolvedLimit,
+        status,
+        priority,
+        type,
+        search: normalizedSearch,
+      })
+
+      syncReports(pageResponse.reports)
       setCurrentPage(resolvedPage)
       setPageSize(resolvedLimit)
       setPagination(pageResponse.pagination)
 
       if (refreshSummary) {
         try {
-          const summary = await reportService.getAuthorityReportsStats()
+          const summary = await reportService.getAuthorityReportsStats(statsScope)
           setCounts(summary)
         } catch {
-          setCounts(calculateDashboardStatsFromReports(roleAwareReports))
+          // Keep previous totals if backend stats are unavailable.
         }
       }
     } catch (error) {
@@ -227,16 +209,15 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     }
   }, [pageSize, syncReports, viewer])
 
-  const getTabReports = useCallback(
-    (tab: ReportsFilterTab) => {
-      if (tab === 'all') {
-        return reports
-      }
+  const refreshAfterAction = useCallback(async () => {
+    const lastQuery = latestQueryRef.current
 
-      return reports.filter((report) => report.status === tab)
-    },
-    [reports],
-  )
+    await fetchReports({
+      ...lastQuery,
+      isManualRefresh: true,
+      refreshSummary: true,
+    })
+  }, [fetchReports])
 
   const performStatusUpdate = useCallback(async ({
     reportId,
@@ -281,6 +262,8 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         )
       }
 
+      await refreshAfterAction()
+
       return true
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
@@ -293,7 +276,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         return next
       })
     }
-  }, [syncReports])
+  }, [refreshAfterAction, syncReports])
 
   const acceptReport = useCallback(async (reportId: string) => {
     setActionErrorMessage(null)
@@ -310,6 +293,8 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
             : report,
         ),
       )
+
+      await refreshAfterAction()
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
     } finally {
@@ -319,7 +304,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         return next
       })
     }
-  }, [syncReports])
+  }, [refreshAfterAction, syncReports])
 
   const rejectReport = useCallback(async (reportId: string) => {
     setActionErrorMessage(null)
@@ -340,6 +325,8 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
             : report,
         ),
       )
+
+      await refreshAfterAction()
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
     } finally {
@@ -349,7 +336,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         return next
       })
     }
-  }, [syncReports])
+  }, [refreshAfterAction, syncReports])
 
   const updateHumanReviewReport = useCallback(async ({
     reportId,
@@ -421,6 +408,8 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         ),
       )
 
+      await refreshAfterAction()
+
       return true
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
@@ -432,7 +421,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         return next
       })
     }
-  }, [syncReports])
+  }, [refreshAfterAction, syncReports])
 
   const resolveReport = useCallback(async (reportId: string) => {
     await performStatusUpdate({
@@ -455,7 +444,6 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     pageSize,
     isServerPagination,
     isCountsLoading,
-    getTabReports,
     fetchReports,
     refreshCounts,
     acceptReport,

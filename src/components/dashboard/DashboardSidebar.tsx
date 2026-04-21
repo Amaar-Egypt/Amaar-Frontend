@@ -17,6 +17,7 @@ interface DashboardSidebarProps {
   onSelectSection: (section: DashboardSection) => void
   selectedReport: Report | null
   viewerRole?: UserRole | null
+  typeLabelsByCode?: Record<string, string>
   isDetailsLoading?: boolean
   detailsErrorMessage?: string | null
   onViewFullDetails?: (report: Report) => void
@@ -71,6 +72,7 @@ const DashboardSidebar = ({
   onSelectSection,
   selectedReport,
   viewerRole = null,
+  typeLabelsByCode = {},
   isDetailsLoading = false,
   detailsErrorMessage = null,
   onViewFullDetails,
@@ -145,6 +147,7 @@ const DashboardSidebar = ({
             <ReportDetailsPanel
               report={selectedReport}
               viewerRole={viewerRole}
+              typeLabelsByCode={typeLabelsByCode}
               isLoading={isDetailsLoading}
               errorMessage={detailsErrorMessage}
               onViewFullDetails={onViewFullDetails}

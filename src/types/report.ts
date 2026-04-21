@@ -13,22 +13,12 @@ export type ReportClassificationStatus =
   | 'completed'
   | 'failed'
 
-export type ReportTypeCode =
-  | 'pothole'
-  | 'garbage'
-  | 'broken_cable_electric'
-  | 'broken_cable_telecom'
-  | 'streetlight'
-  | 'sewage'
-  | 'water_leak'
-  | 'gas_leak'
-  | 'traffic_signal'
-  | 'sidewalk_damage'
-  | 'fallen_tree'
-  | 'road_obstruction'
-  | 'manhole_cover'
-  | 'transformer'
-  | 'other'
+export type ReportTypeCode = string
+
+export interface ReportTypeDefinition {
+  code: ReportTypeCode
+  label: string
+}
 
 export interface ReportLocation {
   lat: number
@@ -70,6 +60,9 @@ export interface ReportsPagination {
 export interface ReportsQuery {
   status?: ReportStatus
   priority?: ReportPriority
+  type?: ReportTypeCode
+  search?: string
+  assignedAuth?: string
   page?: number
   limit?: number
 }

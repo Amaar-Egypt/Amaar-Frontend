@@ -151,19 +151,23 @@ const logout = async (refreshToken?: string): Promise<LogoutResponse> => {
 }
 
 const getCurrentUserProfile = async (): Promise<ProfileResponse> => {
-  const response = await apiClient.get<ApiEnvelope<ProfileResponse> | ProfileResponse>('/users/me')
-  const profilePayload = extractResponseData<unknown>(response.data)
-  const normalizedUser = normalizeAuthUser(profilePayload)
+  const toProfileResponse = (payload: unknown, rawResponse: unknown): ProfileResponse => {
+    const normalizedUser = normalizeAuthUser(payload)
 
-  if (isAuthDebugEnabled) {
-    console.log('[authService] /users/me debug', {
-      profilePayload,
-      normalizedUser,
-    })
-  }
+    if (isAuthDebugEnabled) {
+      console.log('[authService] /users/me debug', {
+        profilePayload: payload,
+        normalizedUser,
+      })
+    }
 
-  if (normalizedUser) {
-    const profileObject = isObject(profilePayload) ? profilePayload : {}
+    if (!normalizedUser) {
+      throw new Error(
+        extractResponseMessage(rawResponse) ?? 'تعذر تحميل الملف الشخصي للمستخدم.',
+      )
+    }
+
+    const profileObject = isObject(payload) ? payload : {}
 
     return {
       ...profileObject,
@@ -171,9 +175,48 @@ const getCurrentUserProfile = async (): Promise<ProfileResponse> => {
     } as ProfileResponse
   }
 
-  throw new Error(
-    extractResponseMessage(response.data) ?? 'تعذر تحميل الملف الشخصي للمستخدم.',
-  )
+  const response = await apiClient.get<ApiEnvelope<ProfileResponse> | ProfileResponse>('/users/me')
+  const profilePayload = extractResponseData<unknown>(response.data)
+  return toProfileResponse(profilePayload, response.data)
+}
+
+const getCurrentUserProfileByAccessToken = async (
+  accessToken: string,
+): Promise<ProfileResponse> => {
+  const normalizedAccessToken = accessToken.trim()
+
+  if (!normalizedAccessToken) {
+    throw new Error('رمز الدخول غير صالح.')
+  }
+
+  const response = await apiClient.get<ApiEnvelope<ProfileResponse> | ProfileResponse>('/users/me', {
+    headers: {
+      Authorization: `Bearer ${normalizedAccessToken}`,
+    },
+  })
+
+  const profilePayload = extractResponseData<unknown>(response.data)
+  const normalizedUser = normalizeAuthUser(profilePayload)
+
+  if (isAuthDebugEnabled) {
+    console.log('[authService] /users/me (token) debug', {
+      profilePayload,
+      normalizedUser,
+    })
+  }
+
+  if (!normalizedUser) {
+    throw new Error(
+      extractResponseMessage(response.data) ?? 'تعذر تحميل الملف الشخصي للمستخدم.',
+    )
+  }
+
+  const profileObject = isObject(profilePayload) ? profilePayload : {}
+
+  return {
+    ...profileObject,
+    ...normalizedUser,
+  } as ProfileResponse
 }
 
 const authService = {
@@ -182,6 +225,7 @@ const authService = {
   refresh,
   logout,
   getCurrentUserProfile,
+  getCurrentUserProfileByAccessToken,
 }
 
 export default authService
