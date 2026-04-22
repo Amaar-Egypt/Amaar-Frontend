@@ -21,16 +21,20 @@ const DashboardTopbar = ({
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-1 items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-slate-950/45">
-          <span className="text-sm text-slate-500 dark:text-slate-400" aria-hidden="true">
+          <span
+            className="text-sm text-slate-500 dark:text-slate-400"
+            aria-hidden="true"
+          >
             ⌕
           </span>
+
           <input
             value={searchValue}
             onChange={(event) => onSearchChange(event.target.value)}
             type="search"
-            placeholder="ابحث بنوع البلاغ أو الموقع..."
+            placeholder="ابحث باسم البلاغ أو نوع المشكلة..."
             className="w-full bg-transparent text-sm text-slate-700 placeholder:text-slate-500/90 outline-none dark:text-slate-200 dark:placeholder:text-slate-400"
-            aria-label="بحث داخل البلاغات"
+            aria-label="البحث باسم البلاغ أو نوع المشكلة"
           />
         </div>
 
@@ -38,8 +42,12 @@ const DashboardTopbar = ({
           <ThemeToggle />
 
           <div className="rounded-2xl border border-slate-200/70 bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-slate-950/45">
-            <p className="text-xs text-slate-500 dark:text-slate-400">جهه الاختصاص</p>
-            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{user?.name ?? 'جهة الاختصاص'}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              جهة الاختصاص
+            </p>
+            <p className="text-sm font-bold text-slate-800 dark:text-slate-100">
+              {user?.name ?? 'جهة الاختصاص'}
+            </p>
           </div>
 
           <button

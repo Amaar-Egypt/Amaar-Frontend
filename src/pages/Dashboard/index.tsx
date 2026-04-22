@@ -11,33 +11,55 @@ import StatCard from '../../components/dashboard/StatCard'
 import FullReportDetailsModal from '../../components/dashboard/FullReportDetailsModal'
 import useAuth from '../../hooks/useAuth'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
-import type { Report, ReportsFilterTab } from '../../types/report'
-import {
-  getLocationLabel,
-  getReportFilterTabs,
-  getReportTypeLabel,
-} from '../../utils/reportPresentation'
+import authorityService from '../../services/authorityService'
+import reportService from '../../services/reportService'
+import type {
+  Report,
+  ReportPriority,
+  ReportsFilterTab,
+  ReportTypeDefinition,
+} from '../../types/report'
+import type { AuthoritySummary } from '../../types/authority'
+import { getApiErrorMessage } from '../../utils/apiResponse'
+import { getReportFilterTabs } from '../../utils/reportPresentation'
+
+const DEFAULT_TYPES_ERROR_MESSAGE = 'تعذر تحميل أنواع البلاغات.'
+const DEFAULT_AUTHORITIES_ERROR_MESSAGE = 'تعذر تحميل الجهات المسندة.'
+
+interface SelectOption {
+  value: string
+  label: string
+}
 
 const DashboardPage = () => {
   const navigate = useNavigate()
   const { logout, user } = useAuth()
   const [activeSection, setActiveSection] = useState<DashboardSection>('home')
   const [activeFilterTab, setActiveFilterTab] = useState<ReportsFilterTab>('all')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [activePriority, setActivePriority] = useState<'all' | ReportPriority>('all')
+  const [activeType, setActiveType] = useState<'all' | string>('all')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [assignedAuthFilter, setAssignedAuthFilter] = useState('')
+  const [reportTypes, setReportTypes] = useState<ReportTypeDefinition[]>([])
+  const [authorities, setAuthorities] = useState<AuthoritySummary[]>([])
+  const [isReportTypesLoading, setIsReportTypesLoading] = useState(false)
+  const [reportTypesErrorMessage, setReportTypesErrorMessage] = useState<string | null>(null)
+  const [isAuthoritiesLoading, setIsAuthoritiesLoading] = useState(false)
+  const [authoritiesErrorMessage, setAuthoritiesErrorMessage] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isFullDetailsOpen, setIsFullDetailsOpen] = useState(false)
   const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
 
   const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
-  const isAuthorityViewer = user?.role === 'authority'
+  const isAdminViewer = user?.role === 'admin'
 
   const {
+    reports,
     counts,
     pagination,
     currentPage,
     pageSize,
     isServerPagination,
-    getTabReports,
     fetchReports,
     acceptReport,
     rejectReport,
@@ -54,20 +76,177 @@ const DashboardPage = () => {
   } = useAuthorityReports({ viewer: user ?? null })
 
   const statusFilter = activeFilterTab === 'all' ? undefined : activeFilterTab
+  const priorityFilter = activePriority === 'all' ? undefined : activePriority
+
+  const typeOptions = useMemo(
+    () => reportTypes.map((type) => ({
+      value: type.code,
+      label: type.label,
+    })),
+    [reportTypes],
+  )
+
+  const typeLabelsByCode = useMemo(() => {
+    return reportTypes.reduce<Record<string, string>>((acc, type) => {
+      acc[type.code] = type.label
+      return acc
+    }, {})
+  }, [reportTypes])
+
+  const typeFilter = useMemo(() => {
+    if (activeType !== 'all') {
+      return activeType
+    }
+
+    return undefined
+  }, [activeType])
+
+  const searchQuery = searchTerm.trim() || undefined
+  const assignedAuthQuery = isAdminViewer
+    ? assignedAuthFilter.trim() || undefined
+    : undefined
+
+  const authorityOptions: SelectOption[] = useMemo(
+    () => authorities.map((authority) => ({
+      value: authority.id,
+      label: authority.name,
+    })),
+    [authorities],
+  )
+
+  useEffect(() => {
+    let isMounted = true
+    setIsReportTypesLoading(true)
+    setReportTypesErrorMessage(null)
+
+    const loadReportTypes = async () => {
+      try {
+        const types = await reportService.listReportTypes()
+
+        if (!isMounted) {
+          return
+        }
+
+        setReportTypes(types)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setReportTypes([])
+        setReportTypesErrorMessage(
+          getApiErrorMessage(error, DEFAULT_TYPES_ERROR_MESSAGE),
+        )
+      } finally {
+        if (isMounted) {
+          setIsReportTypesLoading(false)
+        }
+      }
+    }
+
+    loadReportTypes()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isAdminViewer) {
+      setAuthorities([])
+      setAssignedAuthFilter('')
+      setAuthoritiesErrorMessage(null)
+      return
+    }
+
+    let isMounted = true
+    setIsAuthoritiesLoading(true)
+    setAuthoritiesErrorMessage(null)
+
+    const loadAuthorities = async () => {
+      try {
+        const list = await authorityService.listAuthorities()
+
+        if (!isMounted) {
+          return
+        }
+
+        const sortedList = [...list].sort((first, second) =>
+          first.name.localeCompare(second.name, 'ar'),
+        )
+
+        setAuthorities(sortedList)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setAuthorities([])
+        setAuthoritiesErrorMessage(
+          getApiErrorMessage(error, DEFAULT_AUTHORITIES_ERROR_MESSAGE),
+        )
+      } finally {
+        if (isMounted) {
+          setIsAuthoritiesLoading(false)
+        }
+      }
+    }
+
+    loadAuthorities()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isAdminViewer])
+
+  useEffect(() => {
+    if (!isAdminViewer || !assignedAuthFilter) {
+      return
+    }
+
+    const hasAuthority = authorities.some(
+      (authority) => authority.id === assignedAuthFilter,
+    )
+
+    if (!hasAuthority) {
+      setAssignedAuthFilter('')
+    }
+  }, [assignedAuthFilter, authorities, isAdminViewer])
 
   useEffect(() => {
     fetchReports({
       refreshSummary: true,
       page: 1,
       status: statusFilter,
+      priority: priorityFilter,
+      type: typeFilter,
+      search: searchQuery,
+      assignedAuth: assignedAuthQuery,
     })
-  }, [fetchReports, statusFilter])
+  }, [
+    assignedAuthQuery,
+    fetchReports,
+    priorityFilter,
+    searchQuery,
+    statusFilter,
+    typeFilter,
+  ])
 
   useEffect(() => {
     if (!filterTabs.some((tab) => tab.key === activeFilterTab)) {
       setActiveFilterTab('all')
     }
   }, [activeFilterTab, filterTabs])
+
+  useEffect(() => {
+    if (activeType === 'all') {
+      return
+    }
+
+    if (!typeOptions.some((option) => option.value === activeType)) {
+      setActiveType('all')
+    }
+  }, [activeType, typeOptions])
 
   const handleLogout = async () => {
     await logout()
@@ -87,39 +266,17 @@ const DashboardPage = () => {
     setIsFullDetailsOpen(false)
   }, [])
 
-  const reportsByFilter = getTabReports(activeFilterTab)
-
-  const filteredReports = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase()
-
-    if (!normalizedSearch) {
-      return reportsByFilter
-    }
-
-    return reportsByFilter.filter((report) => {
-      const haystack = [
-        getReportTypeLabel(report),
-        getLocationLabel(report),
-        report.description,
-      ]
-        .join(' ')
-        .toLowerCase()
-
-      return haystack.includes(normalizedSearch)
-    })
-  }, [reportsByFilter, searchQuery])
-
-  const paginatedReports = filteredReports
+  const paginatedReports = reports
 
   const totalPages = isServerPagination
     ? Math.max(1, pagination?.totalPages ?? 1)
     : 1
 
   const effectiveCurrentPage = isServerPagination ? currentPage : 1
-  const effectivePageSize = isServerPagination ? (pagination?.limit ?? pageSize) : filteredReports.length
+  const effectivePageSize = isServerPagination ? (pagination?.limit ?? pageSize) : reports.length
   const effectiveTotalItems = isServerPagination
-    ? (pagination?.total ?? filteredReports.length)
-    : filteredReports.length
+    ? pagination?.total
+    : reports.length
 
   useEffect(() => {
     if (paginatedReports.length === 0) {
@@ -149,6 +306,10 @@ const DashboardPage = () => {
     fetchReports({
       page: targetPage,
       status: statusFilter,
+      priority: priorityFilter,
+      type: typeFilter,
+      search: searchQuery,
+      assignedAuth: assignedAuthQuery,
     })
   }
 
@@ -158,6 +319,10 @@ const DashboardPage = () => {
       refreshSummary: true,
       page: effectiveCurrentPage,
       status: statusFilter,
+      priority: priorityFilter,
+      type: typeFilter,
+      search: searchQuery,
+      assignedAuth: assignedAuthQuery,
     })
   }
 
@@ -181,14 +346,12 @@ const DashboardPage = () => {
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
           <StatCard title="إجمالي البلاغات" value={counts.total} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="مراجعة الذكاء" value={counts.aiReview} tone="warning" isLoading={isCountsLoading} />
-            {!isAuthorityViewer ? (
-              <StatCard
-                title="مراجعة بشرية"
-                value={counts.humanReview}
-                tone="danger"
-                isLoading={isCountsLoading}
-              />
-            ) : null}
+          <StatCard
+            title="المراجعة البشرية"
+            value={counts.humanReview}
+            tone="danger"
+            isLoading={isCountsLoading}
+          />
           <StatCard title="جاهز للتنفيذ" value={counts.pending} tone="neutral" isLoading={isCountsLoading} />
           <StatCard title="قيد التنفيذ" value={counts.inProgress} tone="warning" isLoading={isCountsLoading} />
           <StatCard title="مكتمل" value={counts.resolved} tone="success" isLoading={isCountsLoading} />
@@ -211,7 +374,39 @@ const DashboardPage = () => {
             </button>
           </div>
 
-          <ReportsFilters activeTab={activeFilterTab} tabs={filterTabs} onChangeTab={setActiveFilterTab} />
+          <ReportsFilters
+            activeTab={activeFilterTab}
+            tabs={filterTabs}
+            selectedPriority={activePriority}
+            selectedType={activeType}
+            typeOptions={typeOptions}
+            assignedAuth={assignedAuthFilter}
+            authorityOptions={authorityOptions}
+            isAdminViewer={isAdminViewer}
+            isAuthoritiesLoading={isAuthoritiesLoading}
+            onChangeTab={setActiveFilterTab}
+            onChangePriority={setActivePriority}
+            onChangeType={setActiveType}
+            onChangeAssignedAuth={setAssignedAuthFilter}
+          />
+
+          {isReportTypesLoading ? (
+            <p dir="rtl" className="rounded-xl border border-slate-200/70 bg-slate-100/70 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-900/45 dark:text-slate-300">
+              جاري تحميل أنواع البلاغات...
+            </p>
+          ) : null}
+
+          {reportTypesErrorMessage ? (
+            <p dir="rtl" className="rounded-xl border border-amber-300/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:border-amber-300/35 dark:bg-amber-500/12 dark:text-amber-200">
+              {reportTypesErrorMessage}
+            </p>
+          ) : null}
+
+          {authoritiesErrorMessage ? (
+            <p dir="rtl" className="rounded-xl border border-amber-300/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:border-amber-300/35 dark:bg-amber-500/12 dark:text-amber-200">
+              {authoritiesErrorMessage}
+            </p>
+          ) : null}
 
           {errorMessage ? (
             <p dir="rtl" className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:border-rose-300/35 dark:bg-rose-500/12 dark:text-rose-200">
@@ -235,6 +430,7 @@ const DashboardPage = () => {
                 reports={paginatedReports}
                 viewerRole={user?.role ?? null}
                 selectedReportId={selectedReport?.id ?? null}
+                typeLabelsByCode={typeLabelsByCode}
                 actionLoadingById={actionLoadingById}
                 onAccept={acceptReport}
                 onReject={rejectReport}
@@ -270,8 +466,8 @@ const DashboardPage = () => {
           <main className="min-w-0 space-y-4" dir="rtl">
             <DashboardTopbar
               user={user}
-              searchValue={searchQuery}
-              onSearchChange={setSearchQuery}
+              searchValue={searchTerm}
+              onSearchChange={setSearchTerm}
               onLogout={handleLogout}
             />
 
@@ -283,6 +479,7 @@ const DashboardPage = () => {
             onSelectSection={setActiveSection}
             selectedReport={selectedReport}
             viewerRole={user?.role ?? null}
+            typeLabelsByCode={typeLabelsByCode}
             onViewFullDetails={handleOpenFullDetails}
           />
         </div>
@@ -291,6 +488,7 @@ const DashboardPage = () => {
       <FullReportDetailsModal
         isOpen={isFullDetailsOpen}
         reportId={fullDetailsReportId}
+        typeLabelsByCode={typeLabelsByCode}
         onClose={handleCloseFullDetails}
       />
     </div>

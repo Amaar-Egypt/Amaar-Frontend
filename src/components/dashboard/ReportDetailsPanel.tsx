@@ -15,6 +15,7 @@ import {
 interface ReportDetailsPanelProps {
   report: Report | null
   viewerRole?: UserRole | null
+  typeLabelsByCode?: Record<string, string>
   isLoading?: boolean
   errorMessage?: string | null
   onViewFullDetails?: (report: Report) => void
@@ -65,6 +66,7 @@ const getSummaryDescription = (report: Report) => {
 const ReportDetailsPanel = ({
   report,
   viewerRole = null,
+  typeLabelsByCode = {},
   isLoading = false,
   errorMessage = null,
   onViewFullDetails,
@@ -112,14 +114,14 @@ const ReportDetailsPanel = ({
       <div className="overflow-hidden rounded-xl border border-slate-200/70 dark:border-white/10">
         <img
           src={report.imageUrl}
-          alt={getReportTypeLabel(report)}
+          alt={getReportTypeLabel(report, typeLabelsByCode)}
           className="h-40 w-full object-cover"
         />
       </div>
 
       <div className="mt-3 space-y-2">
         <p className="text-base font-extrabold text-slate-800 dark:text-slate-100">
-          تفاصيل البلاغ: {getReportTypeLabel(report)}
+          تفاصيل البلاغ: {getReportTypeLabel(report, typeLabelsByCode)}
         </p>
         <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
           {displayedDescription}

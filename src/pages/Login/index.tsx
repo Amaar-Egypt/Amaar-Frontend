@@ -8,7 +8,9 @@ import TextField from '../../components/form/TextField'
 import useAuth from '../../hooks/useAuth'
 import useLogin from '../../hooks/useLogin'
 import AuthLayout from '../../layout/AuthLayout'
+import authService from '../../services/authService'
 import { hasAuthorityAccess } from '../../types/auth'
+import { getApiErrorMessage } from '../../utils/apiResponse'
 
 const loginSchema = z.object({
   email: z
@@ -31,6 +33,9 @@ const LoginPage = () => {
   const { startSession } = useAuth()
   const { loginUser, isLoading, errorMessage } = useLogin()
   const [roleErrorMessage, setRoleErrorMessage] = useState<string | null>(null)
+
+  const DEFAULT_PROFILE_CHECK_ERROR =
+    'تعذر التحقق من صلاحيات الحساب. حاول مرة أخرى.'
 
   const routeUnauthorizedMessage =
     location.state && typeof location.state === 'object' && 'unauthorized' in location.state
@@ -64,7 +69,18 @@ const LoginPage = () => {
       return
     }
 
-    if (!hasAuthorityAccess(result.user?.role)) {
+    let backendUser = result.user ?? null
+
+    try {
+      backendUser = await authService.getCurrentUserProfileByAccessToken(
+        result.accessToken,
+      )
+    } catch (error) {
+      setRoleErrorMessage(getApiErrorMessage(error, DEFAULT_PROFILE_CHECK_ERROR))
+      return
+    }
+
+    if (!hasAuthorityAccess(backendUser?.role)) {
       setRoleErrorMessage('هذا الحساب ليس جهة مختصة ولا يملك صلاحية الدخول إلى لوحة الإدارة.')
       return
     }
@@ -72,7 +88,7 @@ const LoginPage = () => {
     startSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
-      user: result.user,
+      user: backendUser,
       rememberMe: rememberMe ?? false,
     })
 

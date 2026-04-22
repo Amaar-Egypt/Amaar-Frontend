@@ -40,7 +40,7 @@ const getInitialSession = () => {
   return {
     accessToken: session.accessToken,
     refreshToken: session.refreshToken ?? null,
-    user: normalizedStoredUser ?? userFromTokenPayload(session.accessToken),
+    user: normalizedStoredUser,
   }
 }
 
@@ -68,9 +68,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     initialSession.refreshToken,
   )
   const [user, setUser] = useState<AuthUser | null>(initialSession.user)
-  const [isAuthLoading, setIsAuthLoading] = useState(
-    Boolean(initialSession.accessToken && !initialSession.user),
-  )
+  const [isAuthLoading, setIsAuthLoading] = useState(Boolean(initialSession.accessToken))
   const userRef = useRef<AuthUser | null>(initialSession.user)
 
   const startSession = useCallback(
@@ -80,13 +78,13 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
       user?: AuthUser | null
       rememberMe?: boolean
     }) => {
-      const resolvedUser = normalizeAuthUser(nextUser) ?? userFromTokenPayload(accessToken)
+      const resolvedUser = normalizeAuthUser(nextUser)
       userRef.current = resolvedUser
 
       setTokenState(accessToken)
       setRefreshToken(nextRefreshToken ?? null)
       setUser(resolvedUser)
-      setIsAuthLoading(!resolvedUser)
+      setIsAuthLoading(true)
 
       writeAuthSession(
         {
@@ -190,10 +188,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   }, [clearSession])
 
   useEffect(() => {
-    const shouldHydrateUser =
-      !user || (user.role === 'authority' && !user.authorityId)
-
-    if (!token || !shouldHydrateUser) {
+    if (!token) {
       setIsAuthLoading(false)
       return
     }
@@ -226,7 +221,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     return () => {
       isMounted = false
     }
-  }, [clearSession, token, updateUser, user])
+  }, [clearSession, token, updateUser])
 
   const role = user?.role ?? null
   const isAuthority = hasAuthorityAccess(role)
@@ -262,6 +257,7 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useHydrateAuthUser = () => {
   const [isHydrating, setIsHydrating] = useState(false)
 
