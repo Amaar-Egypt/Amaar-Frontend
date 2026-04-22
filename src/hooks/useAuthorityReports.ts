@@ -335,12 +335,24 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     }
   }, [refreshAfterAction, syncReports])
 
-  const rejectReport = useCallback(async (reportId: string) => {
+  const rejectReport = useCallback(async ({
+    reportId,
+    reason,
+  }: {
+    reportId: string
+    reason: string
+  }) => {
     setActionErrorMessage(null)
     setActionLoadingById((prev) => ({ ...prev, [reportId]: 'reject-ai' }))
 
     try {
-      const response = await reportService.rejectReport(reportId)
+      const normalizedReason = reason.trim()
+      if (!normalizedReason) {
+        setActionErrorMessage('سبب رفض الذكاء مطلوب.')
+        return false
+      }
+
+      const response = await reportService.rejectReport(reportId, normalizedReason)
       const nextStatus = response?.status ?? 'human_review'
 
       syncReports(
@@ -349,15 +361,17 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
             ? applyReportTransition(
               report,
               nextStatus,
-              response?.reviewComment ?? report.reviewComment ?? 'تم رفض البلاغ.',
+              response?.reviewComment ?? normalizedReason,
             )
             : report,
         ),
       )
 
       await refreshAfterAction()
+      return true
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      return false
     } finally {
       setActionLoadingById((prev) => {
         const next = { ...prev }
@@ -370,6 +384,11 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
   const approveHumanReviewReport = useCallback(async (report: Report) => {
     const normalizedAssignedAuth = report.assignedAuth?.trim() || undefined
 
+    if (!report.type || !normalizedAssignedAuth) {
+      setActionErrorMessage('يرجى تحديد نوع البلاغ والجهة المسندة قبل الإرسال للتنفيذ.')
+      return false
+    }
+
     return performStatusUpdate({
       reportId: report.id,
       action: 'approve-human',
@@ -379,7 +398,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         priority: report.priority,
         assignedAuth: normalizedAssignedAuth,
         description: report.description,
-        reviewComment: 'تم اعتماد الحل بواسطة الإدارة',
+        reviewComment: 'تم اعتماد البلاغ وإرساله للتنفيذ بواسطة الإدارة',
       },
       fallbackStatus: 'pending',
       fallbackPatch: {
@@ -387,7 +406,7 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         priority: report.priority,
         assignedAuth: normalizedAssignedAuth ?? null,
         description: report.description,
-        reviewComment: 'تم اعتماد الحل بواسطة الإدارة',
+        reviewComment: 'تم اعتماد البلاغ وإرساله للتنفيذ بواسطة الإدارة',
       },
     })
   }, [performStatusUpdate])

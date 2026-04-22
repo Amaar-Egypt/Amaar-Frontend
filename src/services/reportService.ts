@@ -293,9 +293,6 @@ const extractAssignedAuthorityId = (raw: ReportApiModel): string | null => {
     'assignedAuth',
     'assignedTo',
     'assigned_to',
-    'authority',
-    'authorityName',
-    'authority_name',
     'assignedAuthorityId',
     'assigned_authority_id',
     'authorityId',
@@ -315,9 +312,6 @@ const extractAssignedAuthorityId = (raw: ReportApiModel): string | null => {
       'authority_id',
       'authorityCode',
       'authority_code',
-      'name',
-      'displayName',
-      'display_name',
     ])
 
     if (nestedField) {
@@ -334,9 +328,6 @@ const extractAssignedAuthorityId = (raw: ReportApiModel): string | null => {
       'authority_id',
       'authorityCode',
       'authority_code',
-      'name',
-      'displayName',
-      'display_name',
     ])
 
     if (nestedField) {

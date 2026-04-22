@@ -69,7 +69,6 @@ const DashboardPage = () => {
     approveHumanReviewReport,
     submitHumanReviewUpdate,
     startWorkOnReport,
-    rejectPendingExecutionReport,
     resolveReport,
     isLoading,
     isRefreshing,
@@ -451,7 +450,6 @@ const DashboardPage = () => {
                 onApproveHumanReview={approveHumanReviewReport}
                 onOpenHumanReview={handleOpenHumanReview}
                 onStartWork={startWorkOnReport}
-                onPendingReject={rejectPendingExecutionReport}
                 onResolve={resolveReport}
                 onRowClick={handleSelectReport}
               />

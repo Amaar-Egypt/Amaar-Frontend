@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Report } from '../../types/report'
 import type { UserRole } from '../../types/auth'
-import ExecutionRejectModal from './ExecutionRejectModal'
+import AiRejectModal from './AiRejectModal.tsx'
 import {
   formatArabicDate,
   getPriorityLabel,
@@ -16,11 +16,10 @@ interface ReportsTableProps {
   typeLabelsByCode?: Record<string, string>
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
-  onReject: (reportId: string) => void
+  onReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onApproveHumanReview: (report: Report) => void
   onOpenHumanReview: (report: Report) => void
   onStartWork: (reportId: string) => void
-  onPendingReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onResolve: (reportId: string) => void
   onRowClick?: (report: Report) => void
 }
@@ -60,7 +59,6 @@ const ReportsTable = ({
   onApproveHumanReview,
   onOpenHumanReview,
   onStartWork,
-  onPendingReject,
   onResolve,
   onRowClick,
 }: ReportsTableProps) => {
@@ -68,32 +66,32 @@ const ReportsTable = ({
   const isAdminViewer = viewerRole === 'admin'
   const canHandleAiReview = isAuthorityViewer || isAdminViewer
 
-  const [pendingRejectReportId, setPendingRejectReportId] = useState<string | null>(null)
+  const [aiRejectReportId, setAiRejectReportId] = useState<string | null>(null)
 
-  const isPendingRejectSubmitting = Boolean(
-    pendingRejectReportId && actionLoadingById[pendingRejectReportId] === 'reject-execution',
+  const isAiRejectSubmitting = Boolean(
+    aiRejectReportId && actionLoadingById[aiRejectReportId] === 'reject-ai',
   )
 
-  const closePendingRejectModal = () => {
-    if (isPendingRejectSubmitting) {
+  const closeAiRejectModal = () => {
+    if (isAiRejectSubmitting) {
       return
     }
 
-    setPendingRejectReportId(null)
+    setAiRejectReportId(null)
   }
 
-  const handleConfirmPendingReject = async (reason: string) => {
-    if (!pendingRejectReportId) {
+  const handleConfirmAiReject = async (reason: string) => {
+    if (!aiRejectReportId) {
       return
     }
 
-    const didSucceed = await Promise.resolve(onPendingReject({
-      reportId: pendingRejectReportId,
+    const didSucceed = await Promise.resolve(onReject({
+      reportId: aiRejectReportId,
       reason,
     }))
 
     if (didSucceed) {
-      setPendingRejectReportId(null)
+      setAiRejectReportId(null)
     }
   }
 
@@ -194,7 +192,7 @@ const ReportsTable = ({
                                 disabled={Boolean(activeAction)}
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  onReject(report.id)
+                                  setAiRejectReportId(report.id)
                                 }}
                                 className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
                               >
@@ -214,11 +212,16 @@ const ReportsTable = ({
                           >
                             <button
                               type="button"
-                              disabled={Boolean(activeAction)}
+                              disabled={Boolean(activeAction) || !report.assignedAuth || !report.type}
                               onClick={() => onApproveHumanReview(report)}
                               className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+                              title={
+                                !report.assignedAuth || !report.type
+                                  ? 'يرجى تحديد نوع البلاغ والجهة المسندة قبل الإرسال للتنفيذ.'
+                                  : undefined
+                              }
                             >
-                              {activeAction === 'approve-human' ? 'جارٍ اعتماد الحل...' : 'اعتماد الحل'}
+                              {activeAction === 'approve-human' ? 'جارٍ الإرسال للتنفيذ...' : 'إرسال للتنفيذ'}
                             </button>
 
                             <button
@@ -255,18 +258,6 @@ const ReportsTable = ({
                               className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
                             >
                               {activeAction === 'start-work' ? 'جارٍ بدء التنفيذ...' : 'بدء التنفيذ'}
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={Boolean(activeAction)}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setPendingRejectReportId(report.id)
-                              }}
-                              className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
-                            >
-                              {activeAction === 'reject-execution' ? 'جارٍ التحويل للمراجعة...' : 'رفض التنفيذ'}
                             </button>
                           </div>
                         ) : null
@@ -307,11 +298,11 @@ const ReportsTable = ({
         </div>
       </div>
 
-      <ExecutionRejectModal
-        isOpen={Boolean(pendingRejectReportId)}
-        isSubmitting={isPendingRejectSubmitting}
-        onClose={closePendingRejectModal}
-        onConfirm={handleConfirmPendingReject}
+      <AiRejectModal
+        isOpen={Boolean(aiRejectReportId)}
+        isSubmitting={isAiRejectSubmitting}
+        onClose={closeAiRejectModal}
+        onConfirm={handleConfirmAiReject}
       />
     </>
   )
