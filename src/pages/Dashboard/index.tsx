@@ -9,6 +9,7 @@ import ReportsFilters from '../../components/dashboard/ReportsFilters'
 import ReportsTable from '../../components/dashboard/ReportsTable'
 import StatCard from '../../components/dashboard/StatCard'
 import FullReportDetailsModal from '../../components/dashboard/FullReportDetailsModal'
+import HumanReviewModal from '../../components/dashboard/HumanReviewModal'
 import useAuth from '../../hooks/useAuth'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
 import authorityService from '../../services/authorityService'
@@ -49,6 +50,8 @@ const DashboardPage = () => {
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isFullDetailsOpen, setIsFullDetailsOpen] = useState(false)
   const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
+  const [isHumanReviewOpen, setIsHumanReviewOpen] = useState(false)
+  const [humanReviewReportId, setHumanReviewReportId] = useState<string | null>(null)
 
   const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
   const isAdminViewer = user?.role === 'admin'
@@ -63,7 +66,8 @@ const DashboardPage = () => {
     fetchReports,
     acceptReport,
     rejectReport,
-    updateHumanReviewReport,
+    approveHumanReviewReport,
+    submitHumanReviewUpdate,
     startWorkOnReport,
     rejectPendingExecutionReport,
     resolveReport,
@@ -266,6 +270,16 @@ const DashboardPage = () => {
     setIsFullDetailsOpen(false)
   }, [])
 
+  const handleOpenHumanReview = useCallback((report: Report) => {
+    setHumanReviewReportId(report.id)
+    setIsHumanReviewOpen(true)
+  }, [])
+
+  const handleCloseHumanReview = useCallback(() => {
+    setIsHumanReviewOpen(false)
+    setHumanReviewReportId(null)
+  }, [])
+
   const paginatedReports = reports
 
   const totalPages = isServerPagination
@@ -434,7 +448,8 @@ const DashboardPage = () => {
                 actionLoadingById={actionLoadingById}
                 onAccept={acceptReport}
                 onReject={rejectReport}
-                onHumanReviewUpdate={updateHumanReviewReport}
+                onApproveHumanReview={approveHumanReviewReport}
+                onOpenHumanReview={handleOpenHumanReview}
                 onStartWork={startWorkOnReport}
                 onPendingReject={rejectPendingExecutionReport}
                 onResolve={resolveReport}
@@ -490,6 +505,13 @@ const DashboardPage = () => {
         reportId={fullDetailsReportId}
         typeLabelsByCode={typeLabelsByCode}
         onClose={handleCloseFullDetails}
+      />
+
+      <HumanReviewModal
+        isOpen={isHumanReviewOpen}
+        reportId={humanReviewReportId}
+        onClose={handleCloseHumanReview}
+        onSubmit={submitHumanReviewUpdate}
       />
     </div>
   )

@@ -75,14 +75,13 @@ export const getReportTypeLabel = (
   report: Report,
   typeLabelsByCode: Record<string, string> = {},
 ) => {
+  if (report.type) {
+    return typeLabelsByCode[report.type] || report.typeAr || report.type
+  }
+
   if (report.typeAr) {
     return report.typeAr
   }
-
-  if (report.type) {
-    return typeLabelsByCode[report.type] ?? report.type
-  }
-
   return 'غير محدد'
 }
 

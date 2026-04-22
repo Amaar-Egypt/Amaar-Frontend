@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { Report } from '../../types/report'
 import type { UserRole } from '../../types/auth'
 import ExecutionRejectModal from './ExecutionRejectModal'
@@ -7,9 +7,7 @@ import {
   getPriorityLabel,
   getReportStatusLabel,
   getReportTypeLabel,
-  reportPriorityOptions,
 } from '../../utils/reportPresentation'
-import type { ReportPriority } from '../../types/report'
 
 interface ReportsTableProps {
   reports: Report[]
@@ -19,11 +17,8 @@ interface ReportsTableProps {
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
   onReject: (reportId: string) => void
-  onHumanReviewUpdate: (params: {
-    reportId: string
-    priority: ReportPriority
-    assignedAuth?: string
-  }) => void
+  onApproveHumanReview: (report: Report) => void
+  onOpenHumanReview: (report: Report) => void
   onStartWork: (reportId: string) => void
   onPendingReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onResolve: (reportId: string) => void
@@ -62,7 +57,8 @@ const ReportsTable = ({
   actionLoadingById,
   onAccept,
   onReject,
-  onHumanReviewUpdate,
+  onApproveHumanReview,
+  onOpenHumanReview,
   onStartWork,
   onPendingReject,
   onResolve,
@@ -72,20 +68,7 @@ const ReportsTable = ({
   const isAdminViewer = viewerRole === 'admin'
   const canHandleAiReview = isAuthorityViewer || isAdminViewer
 
-  const [humanReviewValuesById, setHumanReviewValuesById] = useState<Record<string, {
-    priority: ReportPriority
-    assignedAuth: string
-  }>>({})
   const [pendingRejectReportId, setPendingRejectReportId] = useState<string | null>(null)
-
-  const getHumanReviewDraft = useMemo(() => {
-    return (report: Report) => {
-      return humanReviewValuesById[report.id] ?? {
-        priority: report.priority,
-        assignedAuth: report.assignedAuth ?? '',
-      }
-    }
-  }, [humanReviewValuesById])
 
   const isPendingRejectSubmitting = Boolean(
     pendingRejectReportId && actionLoadingById[pendingRejectReportId] === 'reject-execution',
@@ -144,8 +127,6 @@ const ReportsTable = ({
               reports.map((report) => {
                 const activeAction = actionLoadingById[report.id]
                 const isSelected = selectedReportId === report.id
-                const humanReviewDraft = getHumanReviewDraft(report)
-
                 return (
                   <tr
                     key={report.id}
@@ -227,74 +208,27 @@ const ReportsTable = ({
                       {report.status === 'human_review' ? (
                         isAdminViewer ? (
                           <div
-                            className="min-w-[300px] space-y-2"
+                            className="flex min-w-[220px] flex-wrap items-center gap-2"
                             onClick={(event) => event.stopPropagation()}
                             onKeyDown={(event) => event.stopPropagation()}
                           >
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={humanReviewDraft.priority}
-                                disabled={Boolean(activeAction)}
-                                onChange={(event) => {
-                                  const nextPriority = event.target.value as ReportPriority
-                                  setHumanReviewValuesById((prev) => ({
-                                    ...prev,
-                                    [report.id]: {
-                                      ...humanReviewDraft,
-                                      priority: nextPriority,
-                                    },
-                                  }))
-                                }}
-                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                              >
-                                {reportPriorityOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
+                            <button
+                              type="button"
+                              disabled={Boolean(activeAction)}
+                              onClick={() => onApproveHumanReview(report)}
+                              className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+                            >
+                              {activeAction === 'approve-human' ? 'جارٍ اعتماد الحل...' : 'اعتماد الحل'}
+                            </button>
 
-                              <input
-                                type="text"
-                                value={humanReviewDraft.assignedAuth}
-                                disabled={Boolean(activeAction)}
-                                onChange={(event) => {
-                                  setHumanReviewValuesById((prev) => ({
-                                    ...prev,
-                                    [report.id]: {
-                                      ...humanReviewDraft,
-                                      assignedAuth: event.target.value,
-                                    },
-                                  }))
-                                }}
-                                placeholder="معرّف الجهة"
-                                className="min-w-0 w-32 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                              />
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={Boolean(activeAction)}
-                                onClick={() => onHumanReviewUpdate({
-                                  reportId: report.id,
-                                  priority: humanReviewDraft.priority,
-                                  assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
-                                })}
-                                className="rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 disabled:opacity-65 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-200"
-                              >
-                                {activeAction === 'human-update' ? 'جارٍ تحديث المراجعة...' : 'تحديث المراجعة'}
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={Boolean(activeAction)}
-                                onClick={() => onResolve(report.id)}
-                                className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                              >
-                                {activeAction === 'resolve' ? 'جارٍ إنهاء البلاغ...' : 'اعتماد الحل'}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              disabled={Boolean(activeAction)}
+                              onClick={() => onOpenHumanReview(report)}
+                              className="rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 disabled:opacity-65 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-200"
+                            >
+                              {activeAction === 'manual-review' ? 'جارٍ تحديث المراجعة...' : 'تحديث المراجعة'}
+                            </button>
                           </div>
                         ) : (
                           <div className="space-y-1">
