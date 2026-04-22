@@ -188,10 +188,19 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         search: normalizedSearch,
       })
 
+      const resolvedPaginationPage = pageResponse.pagination?.page ?? resolvedPage
+      const resolvedPaginationLimit = pageResponse.pagination?.limit ?? resolvedLimit
+
       syncReports(pageResponse.reports)
-      setCurrentPage(resolvedPage)
-      setPageSize(resolvedLimit)
+      setCurrentPage(resolvedPaginationPage)
+      setPageSize(resolvedPaginationLimit)
       setPagination(pageResponse.pagination)
+
+      latestQueryRef.current = {
+        ...latestQueryRef.current,
+        page: resolvedPaginationPage,
+        limit: resolvedPaginationLimit,
+      }
 
       if (refreshSummary) {
         try {

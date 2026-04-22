@@ -19,31 +19,7 @@ const readPersistPreference = () => {
   }
 }
 
-const getStorageForRead = () => {
-  if (!isBrowser) {
-    return null
-  }
-
-  try {
-    const persisted = readPersistPreference()
-    return persisted ? localStorage : sessionStorage
-  } catch {
-    return sessionStorage
-  }
-}
-
-const clearFromStorage = (storage: Storage) => {
-  storage.removeItem(ACCESS_TOKEN_KEY)
-  storage.removeItem(REFRESH_TOKEN_KEY)
-  storage.removeItem(USER_KEY)
-}
-
-export const readAuthSession = (): AuthSession | null => {
-  const storage = getStorageForRead()
-  if (!storage) {
-    return null
-  }
-
+const readSessionFromStorage = (storage: Storage): AuthSession | null => {
   const accessToken = storage.getItem(ACCESS_TOKEN_KEY)
   if (!accessToken) {
     return null
@@ -66,6 +42,33 @@ export const readAuthSession = (): AuthSession | null => {
     accessToken,
     refreshToken,
     user,
+  }
+}
+
+const clearFromStorage = (storage: Storage) => {
+  storage.removeItem(ACCESS_TOKEN_KEY)
+  storage.removeItem(REFRESH_TOKEN_KEY)
+  storage.removeItem(USER_KEY)
+}
+
+export const readAuthSession = (): AuthSession | null => {
+  if (!isBrowser) {
+    return null
+  }
+
+  try {
+    const localSession = readSessionFromStorage(localStorage)
+    if (localSession) {
+      return localSession
+    }
+  } catch {
+    // Ignore localStorage access errors.
+  }
+
+  try {
+    return readSessionFromStorage(sessionStorage)
+  } catch {
+    return null
   }
 }
 
@@ -123,4 +126,14 @@ export const clearAuthSession = () => {
   }
 }
 
-export const isSessionPersisted = () => readPersistPreference()
+export const isSessionPersisted = () => {
+  if (!isBrowser) {
+    return false
+  }
+
+  try {
+    return Boolean(localStorage.getItem(ACCESS_TOKEN_KEY))
+  } catch {
+    return readPersistPreference()
+  }
+}
