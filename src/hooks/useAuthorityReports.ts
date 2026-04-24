@@ -21,14 +21,17 @@ type ReportActionKind =
   | 'accept-ai'
   | 'reject-ai'
   | 'reject-execution'
-  | 'human-update'
+  | 'approve-human'
+  | 'manual-review'
   | 'start-work'
   | 'resolve'
 
 interface StatusUpdatePayload {
   status?: ReportStatus
+  type?: ReportTypeCode
   priority?: ReportPriority
   assignedAuth?: string
+  description?: string
   reviewComment?: string
 }
 
@@ -244,16 +247,27 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     fallbackReviewComment?: string
   }): Promise<boolean> => {
     setActionErrorMessage(null)
-    setActionLoadingById((prev) => ({ ...prev, [reportId]: action }))
+    setActionLoadingById((prev) => ({
+      ...prev,
+      [reportId]: action,
+    }))
 
     try {
-      const updatedReport = await reportService.updateReport(reportId, payload)
-      const nextStatus = updatedReport?.status ?? fallbackStatus
+      const updatedReport = await reportService.updateReport(
+        reportId,
+        payload,
+      )
 
+      const nextStatus =
+        updatedReport?.status ?? fallbackStatus
+
+  
       if (updatedReport) {
         syncReports(
           reportsRef.current.map((report) =>
-            report.id === reportId ? updatedReport : report,
+            report.id === reportId
+              ? updatedReport
+              : report,
           ),
         )
       } else {
@@ -261,21 +275,25 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
           reportsRef.current.map((report) =>
             report.id === reportId
               ? applyReportTransition(
-                  report,
-                  nextStatus,
-                  fallbackReviewComment,
-                  fallbackPatch,
-                )
+                report,
+                nextStatus,
+                fallbackReviewComment,
+                fallbackPatch,
+              )
               : report,
           ),
         )
       }
-
       await refreshAfterAction()
 
       return true
     } catch (error) {
-      setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      setActionErrorMessage(
+        getApiErrorMessage(
+          error,
+          DEFAULT_ACTION_ERROR_MESSAGE,
+        ),
+      )
 
       return false
     } finally {
@@ -285,8 +303,10 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         return next
       })
     }
-  }, [refreshAfterAction, syncReports])
-
+  }, [
+    refreshAfterAction,
+    syncReports,
+  ])
   const acceptReport = useCallback(async (reportId: string) => {
     setActionErrorMessage(null)
     setActionLoadingById((prev) => ({ ...prev, [reportId]: 'accept-ai' }))
@@ -315,29 +335,43 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     }
   }, [refreshAfterAction, syncReports])
 
-  const rejectReport = useCallback(async (reportId: string) => {
+  const rejectReport = useCallback(async ({
+    reportId,
+    reason,
+  }: {
+    reportId: string
+    reason: string
+  }) => {
     setActionErrorMessage(null)
     setActionLoadingById((prev) => ({ ...prev, [reportId]: 'reject-ai' }))
 
     try {
-      const response = await reportService.rejectReport(reportId)
+      const normalizedReason = reason.trim()
+      if (!normalizedReason) {
+        setActionErrorMessage('سبب رفض الذكاء مطلوب.')
+        return false
+      }
+
+      const response = await reportService.rejectReport(reportId, normalizedReason)
       const nextStatus = response?.status ?? 'human_review'
 
       syncReports(
         reportsRef.current.map((report) =>
           report.id === reportId
             ? applyReportTransition(
-                report,
-                nextStatus,
-                response?.reviewComment ?? report.reviewComment ?? 'تم رفض البلاغ.',
-              )
+              report,
+              nextStatus,
+              response?.reviewComment ?? normalizedReason,
+            )
             : report,
         ),
       )
 
       await refreshAfterAction()
+      return true
     } catch (error) {
       setActionErrorMessage(getApiErrorMessage(error, DEFAULT_ACTION_ERROR_MESSAGE))
+      return false
     } finally {
       setActionLoadingById((prev) => {
         const next = { ...prev }
@@ -347,28 +381,73 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     }
   }, [refreshAfterAction, syncReports])
 
-  const updateHumanReviewReport = useCallback(async ({
+  const approveHumanReviewReport = useCallback(async (report: Report) => {
+    const normalizedAssignedAuth = report.assignedAuth?.trim() || undefined
+
+    if (!report.type || !normalizedAssignedAuth) {
+      setActionErrorMessage('يرجى تحديد نوع البلاغ والجهة المسندة قبل الإرسال للتنفيذ.')
+      return false
+    }
+
+    return performStatusUpdate({
+      reportId: report.id,
+      action: 'approve-human',
+      payload: {
+        status: 'pending',
+        type: report.type ?? undefined,
+        priority: report.priority,
+        assignedAuth: normalizedAssignedAuth,
+        description: report.description,
+        reviewComment: 'تم اعتماد البلاغ وإرساله للتنفيذ بواسطة الإدارة',
+      },
+      fallbackStatus: 'pending',
+      fallbackPatch: {
+        type: report.type,
+        priority: report.priority,
+        assignedAuth: normalizedAssignedAuth ?? null,
+        description: report.description,
+        reviewComment: 'تم اعتماد البلاغ وإرساله للتنفيذ بواسطة الإدارة',
+      },
+    })
+  }, [performStatusUpdate])
+
+  const submitHumanReviewUpdate = useCallback(async ({
     reportId,
+    type,
     priority,
     assignedAuth,
+    description,
+    reviewComment,
   }: {
     reportId: string
+    type: ReportTypeCode
     priority: ReportPriority
-    assignedAuth?: string
+    assignedAuth: string
+    description?: string
+    reviewComment?: string
   }) => {
-    const normalizedAssignedAuth = assignedAuth?.trim()
+    const normalizedAssignedAuth = assignedAuth.trim()
+    const normalizedDescription = description?.trim() || undefined
+    const normalizedReviewComment = reviewComment?.trim() || undefined
 
-    await performStatusUpdate({
+    return performStatusUpdate({
       reportId,
-      action: 'human-update',
+      action: 'manual-review',
       payload: {
+        status: 'pending',
+        type,
         priority,
         assignedAuth: normalizedAssignedAuth,
+        description: normalizedDescription,
+        reviewComment: normalizedReviewComment,
       },
-      fallbackStatus: 'human_review',
+      fallbackStatus: 'pending',
       fallbackPatch: {
+        type,
         priority,
-        assignedAuth: normalizedAssignedAuth ?? null,
+        assignedAuth: normalizedAssignedAuth,
+        description: normalizedDescription,
+        reviewComment: normalizedReviewComment ?? null,
       },
     })
   }, [performStatusUpdate])
@@ -409,10 +488,10 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
         reportsRef.current.map((report) =>
           report.id === reportId
             ? applyReportTransition(
-                report,
-                nextStatus,
-                response?.reviewComment ?? normalizedReason,
-              )
+              report,
+              nextStatus,
+              response?.reviewComment ?? normalizedReason,
+            )
             : report,
         ),
       )
@@ -457,7 +536,8 @@ const useAuthorityReports = ({ viewer }: UseAuthorityReportsOptions) => {
     refreshCounts,
     acceptReport,
     rejectReport,
-    updateHumanReviewReport,
+    approveHumanReviewReport,
+    submitHumanReviewUpdate,
     startWorkOnReport,
     rejectPendingExecutionReport,
     resolveReport,

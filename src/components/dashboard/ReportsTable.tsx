@@ -1,15 +1,13 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { Report } from '../../types/report'
 import type { UserRole } from '../../types/auth'
-import ExecutionRejectModal from './ExecutionRejectModal'
+import AiRejectModal from './AiRejectModal.tsx'
 import {
   formatArabicDate,
   getPriorityLabel,
   getReportStatusLabel,
   getReportTypeLabel,
-  reportPriorityOptions,
 } from '../../utils/reportPresentation'
-import type { ReportPriority } from '../../types/report'
 
 interface ReportsTableProps {
   reports: Report[]
@@ -18,14 +16,10 @@ interface ReportsTableProps {
   typeLabelsByCode?: Record<string, string>
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
-  onReject: (reportId: string) => void
-  onHumanReviewUpdate: (params: {
-    reportId: string
-    priority: ReportPriority
-    assignedAuth?: string
-  }) => void
+  onReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
+  onApproveHumanReview: (report: Report) => void
+  onOpenHumanReview: (report: Report) => void
   onStartWork: (reportId: string) => void
-  onPendingReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
   onResolve: (reportId: string) => void
   onRowClick?: (report: Report) => void
 }
@@ -62,9 +56,9 @@ const ReportsTable = ({
   actionLoadingById,
   onAccept,
   onReject,
-  onHumanReviewUpdate,
+  onApproveHumanReview,
+  onOpenHumanReview,
   onStartWork,
-  onPendingReject,
   onResolve,
   onRowClick,
 }: ReportsTableProps) => {
@@ -72,45 +66,32 @@ const ReportsTable = ({
   const isAdminViewer = viewerRole === 'admin'
   const canHandleAiReview = isAuthorityViewer || isAdminViewer
 
-  const [humanReviewValuesById, setHumanReviewValuesById] = useState<Record<string, {
-    priority: ReportPriority
-    assignedAuth: string
-  }>>({})
-  const [pendingRejectReportId, setPendingRejectReportId] = useState<string | null>(null)
+  const [aiRejectReportId, setAiRejectReportId] = useState<string | null>(null)
 
-  const getHumanReviewDraft = useMemo(() => {
-    return (report: Report) => {
-      return humanReviewValuesById[report.id] ?? {
-        priority: report.priority,
-        assignedAuth: report.assignedAuth ?? '',
-      }
-    }
-  }, [humanReviewValuesById])
-
-  const isPendingRejectSubmitting = Boolean(
-    pendingRejectReportId && actionLoadingById[pendingRejectReportId] === 'reject-execution',
+  const isAiRejectSubmitting = Boolean(
+    aiRejectReportId && actionLoadingById[aiRejectReportId] === 'reject-ai',
   )
 
-  const closePendingRejectModal = () => {
-    if (isPendingRejectSubmitting) {
+  const closeAiRejectModal = () => {
+    if (isAiRejectSubmitting) {
       return
     }
 
-    setPendingRejectReportId(null)
+    setAiRejectReportId(null)
   }
 
-  const handleConfirmPendingReject = async (reason: string) => {
-    if (!pendingRejectReportId) {
+  const handleConfirmAiReject = async (reason: string) => {
+    if (!aiRejectReportId) {
       return
     }
 
-    const didSucceed = await Promise.resolve(onPendingReject({
-      reportId: pendingRejectReportId,
+    const didSucceed = await Promise.resolve(onReject({
+      reportId: aiRejectReportId,
       reason,
     }))
 
     if (didSucceed) {
-      setPendingRejectReportId(null)
+      setAiRejectReportId(null)
     }
   }
 
@@ -144,8 +125,7 @@ const ReportsTable = ({
               reports.map((report) => {
                 const activeAction = actionLoadingById[report.id]
                 const isSelected = selectedReportId === report.id
-                const humanReviewDraft = getHumanReviewDraft(report)
-
+                const isClassificationCompleted = report.classificationStatus === 'completed'
                 return (
                   <tr
                     key={report.id}
@@ -194,7 +174,7 @@ const ReportsTable = ({
                     <td className="px-4 py-3">
                       {report.status === 'ai_review' ? (
                         <div className="flex min-w-[220px] flex-wrap items-center gap-2">
-                          {canHandleAiReview ? (
+                          {canHandleAiReview && isClassificationCompleted ? (
                             <>
                               <button
                                 type="button"
@@ -213,88 +193,50 @@ const ReportsTable = ({
                                 disabled={Boolean(activeAction)}
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  onReject(report.id)
+                                  setAiRejectReportId(report.id)
                                 }}
                                 className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
                               >
                                 {activeAction === 'reject-ai' ? 'جارٍ التحويل لبشري...' : 'رفض الذكاء'}
                               </button>
                             </>
-                            ) : null}
+                          ) : canHandleAiReview ? (
+                            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                              انتظار اكتمال التصنيف الذكي
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
 
                       {report.status === 'human_review' ? (
                         isAdminViewer ? (
                           <div
-                            className="min-w-[300px] space-y-2"
+                            className="flex min-w-[220px] flex-wrap items-center gap-2"
                             onClick={(event) => event.stopPropagation()}
                             onKeyDown={(event) => event.stopPropagation()}
                           >
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={humanReviewDraft.priority}
-                                disabled={Boolean(activeAction)}
-                                onChange={(event) => {
-                                  const nextPriority = event.target.value as ReportPriority
-                                  setHumanReviewValuesById((prev) => ({
-                                    ...prev,
-                                    [report.id]: {
-                                      ...humanReviewDraft,
-                                      priority: nextPriority,
-                                    },
-                                  }))
-                                }}
-                                className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                              >
-                                {reportPriorityOptions.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
+                            <button
+                              type="button"
+                              disabled={Boolean(activeAction) || !report.assignedAuth || !report.type}
+                              onClick={() => onApproveHumanReview(report)}
+                              className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+                              title={
+                                !report.assignedAuth || !report.type
+                                  ? 'يرجى تحديد نوع البلاغ والجهة المسندة قبل الإرسال للتنفيذ.'
+                                  : undefined
+                              }
+                            >
+                              {activeAction === 'approve-human' ? 'جارٍ الإرسال للتنفيذ...' : 'إرسال للتنفيذ'}
+                            </button>
 
-                              <input
-                                type="text"
-                                value={humanReviewDraft.assignedAuth}
-                                disabled={Boolean(activeAction)}
-                                onChange={(event) => {
-                                  setHumanReviewValuesById((prev) => ({
-                                    ...prev,
-                                    [report.id]: {
-                                      ...humanReviewDraft,
-                                      assignedAuth: event.target.value,
-                                    },
-                                  }))
-                                }}
-                                placeholder="معرّف الجهة"
-                                className="min-w-0 w-32 rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-emerald-400 dark:border-white/10 dark:bg-slate-900/65 dark:text-slate-200"
-                              />
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                disabled={Boolean(activeAction)}
-                                onClick={() => onHumanReviewUpdate({
-                                  reportId: report.id,
-                                  priority: humanReviewDraft.priority,
-                                  assignedAuth: humanReviewDraft.assignedAuth.trim() || undefined,
-                                })}
-                                className="rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 disabled:opacity-65 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-200"
-                              >
-                                {activeAction === 'human-update' ? 'جارٍ تحديث المراجعة...' : 'تحديث المراجعة'}
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={Boolean(activeAction)}
-                                onClick={() => onResolve(report.id)}
-                                className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
-                              >
-                                {activeAction === 'resolve' ? 'جارٍ إنهاء البلاغ...' : 'اعتماد الحل'}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              disabled={Boolean(activeAction)}
+                              onClick={() => onOpenHumanReview(report)}
+                              className="rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 disabled:opacity-65 dark:border-cyan-400/40 dark:bg-cyan-500/15 dark:text-cyan-200"
+                            >
+                              {activeAction === 'manual-review' ? 'جارٍ تحديث المراجعة...' : 'تحديث المراجعة'}
+                            </button>
                           </div>
                         ) : (
                           <div className="space-y-1">
@@ -321,18 +263,6 @@ const ReportsTable = ({
                               className="rounded-lg border border-emerald-300/70 bg-emerald-500/12 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200"
                             >
                               {activeAction === 'start-work' ? 'جارٍ بدء التنفيذ...' : 'بدء التنفيذ'}
-                            </button>
-
-                            <button
-                              type="button"
-                              disabled={Boolean(activeAction)}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                setPendingRejectReportId(report.id)
-                              }}
-                              className="rounded-lg border border-rose-300/70 bg-rose-500/12 px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-500/20 disabled:opacity-65 dark:border-rose-400/40 dark:bg-rose-500/15 dark:text-rose-200"
-                            >
-                              {activeAction === 'reject-execution' ? 'جارٍ التحويل للمراجعة...' : 'رفض التنفيذ'}
                             </button>
                           </div>
                         ) : null
@@ -373,11 +303,11 @@ const ReportsTable = ({
         </div>
       </div>
 
-      <ExecutionRejectModal
-        isOpen={Boolean(pendingRejectReportId)}
-        isSubmitting={isPendingRejectSubmitting}
-        onClose={closePendingRejectModal}
-        onConfirm={handleConfirmPendingReject}
+      <AiRejectModal
+        isOpen={Boolean(aiRejectReportId)}
+        isSubmitting={isAiRejectSubmitting}
+        onClose={closeAiRejectModal}
+        onConfirm={handleConfirmAiReject}
       />
     </>
   )
