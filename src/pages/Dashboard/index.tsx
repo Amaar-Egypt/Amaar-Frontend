@@ -5,6 +5,7 @@ import DashboardSidebar, {
   type DashboardSection,
 } from '../../components/dashboard/DashboardSidebar'
 import DashboardTopbar from '../../components/dashboard/DashboardTopbar'
+import FixesList from '../../components/dashboard/FixesList'
 import ReportsFilters from '../../components/dashboard/ReportsFilters'
 import ReportsTable from '../../components/dashboard/ReportsTable'
 import StatCard from '../../components/dashboard/StatCard'
@@ -14,6 +15,11 @@ import useAuth from '../../hooks/useAuth'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
 import authorityService from '../../services/authorityService'
 import reportService from '../../services/reportService'
+import type {
+  Fix,
+  FixesResult,
+  FixStatus,
+} from '../../types/fix'
 import type {
   Report,
   ReportPriority,
@@ -26,6 +32,14 @@ import { getReportFilterTabs } from '../../utils/reportPresentation'
 
 const DEFAULT_TYPES_ERROR_MESSAGE = 'تعذر تحميل أنواع البلاغات.'
 const DEFAULT_AUTHORITIES_ERROR_MESSAGE = 'تعذر تحميل الجهات المسندة.'
+const DEFAULT_FIXES_ERROR_MESSAGE = 'تعذر تحميل الإصلاحات.'
+const DEFAULT_FIXES_PAGE_SIZE = 20
+const FIXES_STATUS_OPTIONS: Array<{ value: 'all' | FixStatus; label: string }> = [
+  { value: 'all', label: 'كل الحالات' },
+  { value: 'pending', label: 'قيد المراجعة' },
+  { value: 'accepted', label: 'مقبول' },
+  { value: 'rejected', label: 'مرفوض' },
+]
 
 interface SelectOption {
   value: string
@@ -52,9 +66,28 @@ const DashboardPage = () => {
   const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
   const [isHumanReviewOpen, setIsHumanReviewOpen] = useState(false)
   const [humanReviewReportId, setHumanReviewReportId] = useState<string | null>(null)
+  const [fixesCountByReportId, setFixesCountByReportId] = useState<Record<string, number>>({})
+  const [fixesCountLoadingByReportId, setFixesCountLoadingByReportId] = useState<Record<string, boolean>>({})
+  const [fixesCountErrorByReportId, setFixesCountErrorByReportId] = useState<Record<string, string>>({})
+  const [activeReportFixesReport, setActiveReportFixesReport] = useState<Report | null>(null)
+  const [reportFixes, setReportFixes] = useState<Fix[]>([])
+  const [isReportFixesLoading, setIsReportFixesLoading] = useState(false)
+  const [isReportFixesRefreshing, setIsReportFixesRefreshing] = useState(false)
+  const [reportFixesErrorMessage, setReportFixesErrorMessage] = useState<string | null>(null)
+  const [myFixes, setMyFixes] = useState<Fix[]>([])
+  const [myFixesPagination, setMyFixesPagination] = useState<FixesResult['pagination']>(null)
+  const [myFixesPage, setMyFixesPage] = useState(1)
+  const [myFixesPageSize, setMyFixesPageSize] = useState(DEFAULT_FIXES_PAGE_SIZE)
+  const [isMyFixesLoading, setIsMyFixesLoading] = useState(false)
+  const [isMyFixesRefreshing, setIsMyFixesRefreshing] = useState(false)
+  const [myFixesErrorMessage, setMyFixesErrorMessage] = useState<string | null>(null)
+  const [selectedFix, setSelectedFix] = useState<Fix | null>(null)
+  const [fixesStatusFilter, setFixesStatusFilter] = useState<'all' | FixStatus>('all')
+  const [fixesAuthorityFilter, setFixesAuthorityFilter] = useState('')
 
   const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
   const isAdminViewer = user?.role === 'admin'
+  const isAuthorityViewer = user?.role === 'authority'
 
   const {
     reports,
@@ -108,6 +141,18 @@ const DashboardPage = () => {
   const assignedAuthQuery = isAdminViewer
     ? assignedAuthFilter.trim() || undefined
     : undefined
+  const fixesStatusQuery = fixesStatusFilter === 'all' ? undefined : fixesStatusFilter
+  const fixesAuthorityQuery = useMemo(() => {
+    if (isAdminViewer) {
+      return fixesAuthorityFilter.trim() || undefined
+    }
+
+    if (isAuthorityViewer) {
+      return user?.authorityId?.trim() || undefined
+    }
+
+    return undefined
+  }, [fixesAuthorityFilter, isAdminViewer, isAuthorityViewer, user?.authorityId])
 
   const authorityOptions: SelectOption[] = useMemo(
     () => authorities.map((authority) => ({
@@ -217,6 +262,25 @@ const DashboardPage = () => {
   }, [assignedAuthFilter, authorities, isAdminViewer])
 
   useEffect(() => {
+    if (!isAdminViewer) {
+      setFixesAuthorityFilter('')
+      return
+    }
+
+    if (!fixesAuthorityFilter) {
+      return
+    }
+
+    const hasAuthority = authorities.some(
+      (authority) => authority.id === fixesAuthorityFilter,
+    )
+
+    if (!hasAuthority) {
+      setFixesAuthorityFilter('')
+    }
+  }, [authorities, fixesAuthorityFilter, isAdminViewer])
+
+  useEffect(() => {
     fetchReports({
       refreshSummary: true,
       page: 1,
@@ -279,7 +343,131 @@ const DashboardPage = () => {
     setHumanReviewReportId(null)
   }, [])
 
+  const loadReportFixes = useCallback(async (
+    reportId: string,
+    isManualRefresh: boolean = false,
+  ) => {
+    if (isManualRefresh) {
+      setIsReportFixesRefreshing(true)
+    } else {
+      setIsReportFixesLoading(true)
+    }
+
+    setReportFixesErrorMessage(null)
+
+    try {
+      const response = await reportService.listReportFixes(reportId)
+
+      setReportFixes(response.fixes)
+    } catch (error) {
+      setReportFixes([])
+      setReportFixesErrorMessage(getApiErrorMessage(error, DEFAULT_FIXES_ERROR_MESSAGE))
+    } finally {
+      setIsReportFixesLoading(false)
+      setIsReportFixesRefreshing(false)
+    }
+  }, [])
+
+  const loadMyFixes = useCallback(async (
+    targetPage: number,
+    targetLimit: number,
+    isManualRefresh: boolean = false,
+  ) => {
+    if (!user) {
+      return
+    }
+
+    if (isManualRefresh) {
+      setIsMyFixesRefreshing(true)
+    } else {
+      setIsMyFixesLoading(true)
+    }
+
+    setMyFixesErrorMessage(null)
+
+    try {
+      const response = await reportService.listFixes({
+        status: fixesStatusQuery,
+        authority: fixesAuthorityQuery,
+        page: targetPage,
+        limit: targetLimit,
+      })
+
+      setMyFixes(response.fixes)
+      setMyFixesPagination(response.pagination)
+      setMyFixesPage(response.pagination?.page ?? targetPage)
+      setMyFixesPageSize(response.pagination?.limit ?? targetLimit)
+    } catch (error) {
+      setMyFixes([])
+      setMyFixesPagination(null)
+      setMyFixesErrorMessage(getApiErrorMessage(error, DEFAULT_FIXES_ERROR_MESSAGE))
+    } finally {
+      setIsMyFixesLoading(false)
+      setIsMyFixesRefreshing(false)
+    }
+  }, [fixesAuthorityQuery, fixesStatusQuery, user])
+
+  const handleOpenReportFixes = useCallback((report: Report) => {
+    setActiveSection('report-fixes')
+    setActiveReportFixesReport(report)
+    setSelectedFix(null)
+    setReportFixes([])
+    void loadReportFixes(report.id)
+  }, [loadReportFixes])
+
+  const handleCloseReportFixes = useCallback(() => {
+    setActiveSection('home')
+    setActiveReportFixesReport(null)
+    setSelectedFix(null)
+    setReportFixes([])
+    setReportFixesErrorMessage(null)
+    setIsReportFixesLoading(false)
+    setIsReportFixesRefreshing(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'report-fixes') {
+      return
+    }
+
+    if (reportFixes.length === 0) {
+      setSelectedFix(null)
+      return
+    }
+
+    const stillExists = selectedFix
+      ? reportFixes.some((fix) => fix.id === selectedFix.id)
+      : false
+
+    if (!stillExists) {
+      setSelectedFix(reportFixes[0])
+    }
+  }, [activeSection, reportFixes, selectedFix])
+
+  useEffect(() => {
+    if (activeSection !== 'assigned-reports') {
+      return
+    }
+
+    if (myFixes.length === 0) {
+      setSelectedFix(null)
+      return
+    }
+
+    const stillExists = selectedFix
+      ? myFixes.some((fix) => fix.id === selectedFix.id)
+      : false
+
+    if (!stillExists) {
+      setSelectedFix(myFixes[0])
+    }
+  }, [activeSection, myFixes, selectedFix])
+
   const paginatedReports = reports
+  const visibleReportIds = useMemo(
+    () => paginatedReports.map((report) => report.id),
+    [paginatedReports],
+  )
 
   const totalPages = isServerPagination
     ? Math.max(1, pagination?.totalPages ?? 1)
@@ -290,6 +478,76 @@ const DashboardPage = () => {
   const effectiveTotalItems = isServerPagination
     ? pagination?.total
     : reports.length
+  const myFixesTotalPages = Math.max(1, myFixesPagination?.totalPages ?? 1)
+  const myFixesTotalItems = myFixesPagination?.total ?? myFixes.length
+
+  useEffect(() => {
+    if (visibleReportIds.length === 0) {
+      setFixesCountByReportId({})
+      setFixesCountLoadingByReportId({})
+      setFixesCountErrorByReportId({})
+      return
+    }
+
+    let isMounted = true
+
+    const loadingState = visibleReportIds.reduce<Record<string, boolean>>((acc, reportId) => {
+      acc[reportId] = true
+      return acc
+    }, {})
+
+    setFixesCountLoadingByReportId(loadingState)
+    setFixesCountErrorByReportId({})
+
+    const loadFixesCounts = async () => {
+      const results = await Promise.all(
+        visibleReportIds.map(async (reportId) => {
+          try {
+            const count = await reportService.getReportFixesCount(reportId)
+
+            return {
+              reportId,
+              count,
+              error: null as string | null,
+            }
+          } catch (error) {
+            return {
+              reportId,
+              count: null as number | null,
+              error: getApiErrorMessage(error, 'تعذر تحميل عدد الإصلاحات.'),
+            }
+          }
+        }),
+      )
+
+      if (!isMounted) {
+        return
+      }
+
+      const nextCounts: Record<string, number> = {}
+      const nextErrors: Record<string, string> = {}
+
+      for (const result of results) {
+        if (typeof result.count === 'number') {
+          nextCounts[result.reportId] = result.count
+        }
+
+        if (result.error) {
+          nextErrors[result.reportId] = result.error
+        }
+      }
+
+      setFixesCountByReportId(nextCounts)
+      setFixesCountErrorByReportId(nextErrors)
+      setFixesCountLoadingByReportId({})
+    }
+
+    void loadFixesCounts()
+
+    return () => {
+      isMounted = false
+    }
+  }, [visibleReportIds])
 
   useEffect(() => {
     if (paginatedReports.length === 0) {
@@ -310,6 +568,14 @@ const DashboardPage = () => {
       void handleSelectReport(paginatedReports[0])
     }
   }, [handleSelectReport, paginatedReports, selectedReport])
+
+  useEffect(() => {
+    if (activeSection !== 'assigned-reports' || !user) {
+      return
+    }
+
+    void loadMyFixes(1, DEFAULT_FIXES_PAGE_SIZE)
+  }, [activeSection, loadMyFixes, user])
 
   const handlePageChange = (targetPage: number) => {
     if (targetPage < 1 || targetPage > totalPages || targetPage === effectiveCurrentPage) {
@@ -339,14 +605,207 @@ const DashboardPage = () => {
     })
   }
 
+  const handleRefreshReportFixes = () => {
+    if (!activeReportFixesReport) {
+      return
+    }
+
+    void loadReportFixes(activeReportFixesReport.id, true)
+  }
+
+  const handleMyFixesPageChange = (targetPage: number) => {
+    if (targetPage < 1 || targetPage > myFixesTotalPages || targetPage === myFixesPage) {
+      return
+    }
+
+    void loadMyFixes(targetPage, myFixesPageSize)
+  }
+
+  const handleRefreshMyFixes = () => {
+    void loadMyFixes(myFixesPage, myFixesPageSize, true)
+  }
+
   const renderSectionContent = () => {
+    if (activeSection === 'assigned-reports') {
+      return (
+        <section
+          dir="rtl"
+          className="space-y-3 rounded-3xl border border-slate-200/70 bg-white/72 p-4 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/68 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)] sm:p-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">إصلاحات</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">عرض الإصلاحات مباشرة من الخادم باستخدام فلاتر backend (status, authority).</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefreshMyFixes}
+              disabled={isMyFixesRefreshing || isMyFixesLoading}
+              className="inline-flex items-center justify-center rounded-xl border border-emerald-300/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+            >
+              {isMyFixesRefreshing ? 'جاري التحديث...' : 'تحديث الإصلاحات'}
+            </button>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              حالة الإصلاح
+              <select
+                value={fixesStatusFilter}
+                onChange={(event) => setFixesStatusFilter(event.target.value as 'all' | FixStatus)}
+                className="rounded-xl border border-slate-300/70 bg-white/90 px-3 py-2 text-sm text-slate-800 outline-none ring-emerald-500/40 transition focus:ring dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-100"
+              >
+                {FIXES_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {isAdminViewer ? (
+              <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                الجهة
+                <select
+                  value={fixesAuthorityFilter}
+                  onChange={(event) => setFixesAuthorityFilter(event.target.value)}
+                  disabled={isAuthoritiesLoading}
+                  className="rounded-xl border border-slate-300/70 bg-white/90 px-3 py-2 text-sm text-slate-800 outline-none ring-emerald-500/40 transition focus:ring dark:border-white/10 dark:bg-slate-900/70 dark:text-slate-100"
+                >
+                  <option value="">
+                    {isAuthoritiesLoading ? 'جاري تحميل الجهات...' : 'كل الجهات'}
+                  </option>
+                  {authorityOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+
+          {myFixesErrorMessage ? (
+            <p className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:border-rose-300/35 dark:bg-rose-500/12 dark:text-rose-200">
+              {myFixesErrorMessage}
+            </p>
+          ) : null}
+
+          {isAdminViewer && authoritiesErrorMessage ? (
+            <p className="rounded-xl border border-amber-300/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:border-amber-300/35 dark:bg-amber-500/12 dark:text-amber-200">
+              {authoritiesErrorMessage}
+            </p>
+          ) : null}
+
+          {isMyFixesLoading ? (
+            <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 px-4 py-6 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
+              جاري تحميل الإصلاحات...
+            </p>
+          ) : myFixes.length === 0 ? (
+            <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 px-4 py-6 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
+              لا توجد إصلاحات مطابقة للفلاتر الحالية.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <FixesList
+                fixes={myFixes}
+                selectedFixId={selectedFix?.id ?? null}
+                onSelectFix={setSelectedFix}
+              />
+
+              <Pagination
+                currentPage={myFixesPage}
+                totalPages={myFixesTotalPages}
+                totalItems={myFixesTotalItems}
+                pageSize={myFixesPageSize}
+                isLoading={isMyFixesRefreshing || isMyFixesLoading}
+                onPageChange={handleMyFixesPageChange}
+              />
+            </div>
+          )}
+        </section>
+      )
+    }
+
+    if (activeSection === 'report-fixes') {
+      return (
+        <section
+          dir="rtl"
+          className="space-y-3 rounded-3xl border border-cyan-300/55 bg-white/72 p-4 shadow-[0_20px_44px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-cyan-400/30 dark:bg-slate-900/68 dark:shadow-[0_30px_75px_rgba(2,6,23,0.5)] sm:p-5"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">إصلاحات البلاغ</h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {activeReportFixesReport
+                  ? `رقم البلاغ: ${activeReportFixesReport.id}`
+                  : 'لم يتم تحديد بلاغ حتى الآن.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleRefreshReportFixes}
+                disabled={!activeReportFixesReport || isReportFixesRefreshing || isReportFixesLoading}
+                className="inline-flex items-center justify-center rounded-xl border border-emerald-300/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-500/20 disabled:opacity-65 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200"
+              >
+                {isReportFixesRefreshing ? 'جاري التحديث...' : 'تحديث الإصلاحات'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCloseReportFixes}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white/85 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-100 dark:border-white/10 dark:bg-slate-900/60 dark:text-slate-200 dark:hover:bg-white/10"
+              >
+                العودة إلى البلاغات
+              </button>
+            </div>
+          </div>
+
+          {!activeReportFixesReport ? (
+            <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 px-4 py-6 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
+              اختر بلاغًا من الجدول ثم اضغط على عدد الإصلاحات لعرض تفاصيله هنا.
+            </p>
+          ) : (
+            <>
+              {reportFixesErrorMessage ? (
+                <p className="rounded-xl border border-rose-300/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:border-rose-300/35 dark:bg-rose-500/12 dark:text-rose-200">
+                  {reportFixesErrorMessage}
+                </p>
+              ) : null}
+
+              {isReportFixesLoading ? (
+                <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 px-4 py-6 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
+                  جاري تحميل إصلاحات البلاغ...
+                </p>
+              ) : reportFixes.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200/70 bg-slate-100/70 px-4 py-6 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
+                  لا توجد إصلاحات مرتبطة بهذا البلاغ.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  <FixesList
+                    fixes={reportFixes}
+                    selectedFixId={selectedFix?.id ?? null}
+                    onSelectFix={setSelectedFix}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )
+    }
+
     if (activeSection !== 'home') {
       return (
         <section
           dir="rtl"
           className="rounded-3xl border border-slate-200/70 bg-white/75 p-6 shadow-[0_18px_46px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_28px_70px_rgba(2,6,23,0.48)]"
         >
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{activeSection === 'map' ? 'الخريطة' : activeSection === 'assigned-reports' ? 'البلاغات المسندة' : 'الملف الشخصي'}</h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{activeSection === 'map' ? 'الخريطة' : 'الملف الشخصي'}</h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             هذه الواجهة سيتم تطويرها لاحقًا ضمن نفس بنية لوحة التحكم.
           </p>
@@ -444,6 +903,9 @@ const DashboardPage = () => {
                 viewerRole={user?.role ?? null}
                 selectedReportId={selectedReport?.id ?? null}
                 typeLabelsByCode={typeLabelsByCode}
+                fixesCountByReportId={fixesCountByReportId}
+                fixesCountLoadingByReportId={fixesCountLoadingByReportId}
+                fixesCountErrorByReportId={fixesCountErrorByReportId}
                 actionLoadingById={actionLoadingById}
                 onAccept={acceptReport}
                 onReject={rejectReport}
@@ -451,6 +913,7 @@ const DashboardPage = () => {
                 onOpenHumanReview={handleOpenHumanReview}
                 onStartWork={startWorkOnReport}
                 onResolve={resolveReport}
+                onOpenReportFixes={handleOpenReportFixes}
                 onRowClick={handleSelectReport}
               />
 
@@ -491,6 +954,14 @@ const DashboardPage = () => {
             activeSection={activeSection}
             onSelectSection={setActiveSection}
             selectedReport={selectedReport}
+            selectedFix={selectedFix}
+            detailsMode={
+              activeSection === 'report-fixes'
+                ? (reportFixes.length > 0 ? 'fix' : 'none')
+                : activeSection === 'assigned-reports'
+                  ? (myFixes.length > 0 ? 'fix' : 'none')
+                  : 'report'
+            }
             viewerRole={user?.role ?? null}
             typeLabelsByCode={typeLabelsByCode}
             onViewFullDetails={handleOpenFullDetails}

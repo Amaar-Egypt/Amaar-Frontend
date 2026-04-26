@@ -1,5 +1,5 @@
 import apiClient from './apiClient'
-import type { ApiEnvelope } from '../types/api'
+import type { ApiEnvelope, ApiPagination } from '../types/api'
 import type {
   DashboardStats,
   Report,
@@ -12,6 +12,13 @@ import type {
   ReportTypeCode,
   ReportTypeDefinition,
 } from '../types/report'
+import type {
+  Fix,
+  FixesQuery,
+  FixesResult,
+  FixStatus,
+  ReportFixesResult,
+} from '../types/fix'
 import { normalizeDashboardStats } from '../utils/reportStats'
 import {
   extractResponseData,
@@ -59,6 +66,19 @@ interface ReportTypeApiModel {
   categoryAr?: string | null
 }
 
+interface FixApiModel {
+  id?: string | number | null
+  reportId?: string | number | null
+  userId?: string | number | null
+  imageUrl?: string | null
+  description?: string | null
+  status?: string | null
+  pointsAwarded?: number | string | null
+  comment?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
 interface ReviewActionData {
   id: string
   status: ReportStatus
@@ -88,6 +108,7 @@ const CLASSIFICATION_STATUSES: ReportClassificationStatus[] = [
   'completed',
   'failed',
 ]
+const FIX_STATUSES: FixStatus[] = ['pending', 'accepted', 'rejected']
 const PAGINATION_TOTAL_KEYS = [
   'total',
   'totalItems',
@@ -416,6 +437,130 @@ const normalizeReport = (raw: ReportApiModel): Report => {
   }
 }
 
+const normalizeFixStatus = (value: unknown): FixStatus | null => {
+  const normalizedStatus = toNonEmptyString(value)?.toLowerCase()
+
+  if (normalizedStatus && FIX_STATUSES.includes(normalizedStatus as FixStatus)) {
+    return normalizedStatus as FixStatus
+  }
+
+  return null
+}
+
+const normalizeFix = (raw: unknown): Fix | null => {
+  if (!isObject(raw)) {
+    return null
+  }
+
+  const source = raw as FixApiModel & UnknownObject
+  const id = toNonEmptyString(source.id)
+  const reportId = toNonEmptyString(source.reportId)
+  const userId = toNonEmptyString(source.userId)
+  const imageUrl = toNonEmptyString(source.imageUrl)
+  const description = toNonEmptyString(source.description)
+  const status = normalizeFixStatus(source.status)
+  const pointsAwarded = toNumber(source.pointsAwarded)
+  const createdAt = toNonEmptyString(source.createdAt)
+  const updatedAt = toNonEmptyString(source.updatedAt)
+
+  if (
+    !id ||
+    !reportId ||
+    !userId ||
+    !imageUrl ||
+    !description ||
+    !status ||
+    pointsAwarded === null ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    reportId,
+    userId,
+    imageUrl,
+    description,
+    status,
+    pointsAwarded: Math.max(0, Math.trunc(pointsAwarded)),
+    comment: toNonEmptyString(source.comment),
+    createdAt,
+    updatedAt,
+  }
+}
+
+const normalizeApiPagination = (value: unknown): ApiPagination | null => {
+  if (!isObject(value)) {
+    return null
+  }
+
+  const page = toNumber(value.page)
+  const limit = toNumber(value.limit)
+  const total = toNumber(value.total)
+  const totalPages = toNumber(value.totalPages)
+
+  if (
+    page === null ||
+    limit === null ||
+    total === null ||
+    totalPages === null
+  ) {
+    return null
+  }
+
+  const normalizedPage = Math.trunc(page)
+  const normalizedLimit = Math.trunc(limit)
+  const normalizedTotal = Math.trunc(total)
+  const normalizedTotalPages = Math.trunc(totalPages)
+
+  if (
+    normalizedPage < 1 ||
+    normalizedLimit < 1 ||
+    normalizedTotal < 0 ||
+    normalizedTotalPages < 1
+  ) {
+    return null
+  }
+
+  return {
+    page: normalizedPage,
+    limit: normalizedLimit,
+    total: normalizedTotal,
+    totalPages: normalizedTotalPages,
+  }
+}
+
+const extractStrictSuccessDataArray = (payload: unknown): unknown[] | null => {
+  if (!isObject(payload)) {
+    return null
+  }
+
+  if (payload.success !== true) {
+    return null
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(payload, 'data')) {
+    return null
+  }
+
+  const data = payload.data
+  return Array.isArray(data) ? data : null
+}
+
+const extractStrictPagination = (payload: unknown): ApiPagination | null => {
+  if (!isObject(payload)) {
+    return null
+  }
+
+  if (payload.success !== true) {
+    return null
+  }
+
+  return normalizeApiPagination(payload.pagination)
+}
+
 const hasReportIdentity = (value: unknown): value is ReportApiModel => {
   return isObject(value) && typeof value.id === 'string'
 }
@@ -458,6 +603,41 @@ const normalizeReportsQuery = (
 
   if (typeof query.limit === 'number' && Number.isFinite(query.limit)) {
     normalized.limit = query.limit
+  }
+
+  return Object.keys(normalized).length ? normalized : undefined
+}
+
+const normalizeFixesQuery = (
+  query?: FixesQuery,
+): Record<string, string | number> | undefined => {
+  if (!query) {
+    return undefined
+  }
+
+  const normalized: Record<string, string | number> = {}
+
+  const user = toNonEmptyString(query.user)
+  if (user) {
+    normalized.user = user
+  }
+
+  const status = toNonEmptyString(query.status)
+  if (status) {
+    normalized.status = status
+  }
+
+  const authority = toNonEmptyString(query.authority)
+  if (authority) {
+    normalized.authority = authority
+  }
+
+  if (typeof query.page === 'number' && Number.isFinite(query.page) && query.page > 0) {
+    normalized.page = Math.trunc(query.page)
+  }
+
+  if (typeof query.limit === 'number' && Number.isFinite(query.limit) && query.limit > 0) {
+    normalized.limit = Math.trunc(query.limit)
   }
 
   return Object.keys(normalized).length ? normalized : undefined
@@ -689,6 +869,60 @@ const listReports = async (query?: ReportsQuery): Promise<ReportsResult> => {
   }
 }
 
+const listReportFixes = async (
+  reportId: string,
+): Promise<ReportFixesResult> => {
+  const response = await apiClient.get<ApiEnvelope<FixApiModel[]>>(`/reports/${reportId}/fixes`)
+
+  const payload = extractStrictSuccessDataArray(response.data)
+
+  if (!payload) {
+    throw new Error(extractResponseMessage(response.data) ?? 'تعذر تحميل الإصلاحات.')
+  }
+
+  const fixes = payload
+    .map((rawFix) => normalizeFix(rawFix))
+    .filter((fix): fix is Fix => fix !== null)
+
+  return {
+    fixes,
+    pagination: null,
+  }
+}
+
+const listFixes = async (query?: FixesQuery): Promise<FixesResult> => {
+  const normalizedQuery = normalizeFixesQuery(query)
+  const response = await apiClient.get<ApiEnvelope<FixApiModel[]>>('/fixes', {
+    params: normalizedQuery,
+  })
+
+  const payload = extractStrictSuccessDataArray(response.data)
+
+  if (!payload) {
+    throw new Error(extractResponseMessage(response.data) ?? 'تعذر تحميل الإصلاحات.')
+  }
+
+  const pagination = extractStrictPagination(response.data)
+
+  if (!pagination) {
+    throw new Error('تعذر تحميل بيانات الصفحات للإصلاحات.')
+  }
+
+  const fixes = payload
+    .map((rawFix) => normalizeFix(rawFix))
+    .filter((fix): fix is Fix => fix !== null)
+
+  return {
+    fixes,
+    pagination,
+  }
+}
+
+const getReportFixesCount = async (reportId: string): Promise<number> => {
+  const fixesResult = await listReportFixes(reportId)
+  return fixesResult.fixes.length
+}
+
 const getTotalFromPagedResult = (result: ReportsResult): number => {
   return result.pagination?.total ?? 0
 }
@@ -788,6 +1022,9 @@ const updateReport = async (
 const reportService = {
   listReportTypes,
   listReports,
+  listReportFixes,
+  listFixes,
+  getReportFixesCount,
   getAuthorityReportsStats,
   getReportById,
   acceptReport,
