@@ -85,6 +85,12 @@ interface ReviewActionData {
   reviewComment?: string | null
 }
 
+interface FixReviewActionData {
+  id: string
+  status: Extract<FixStatus, 'accepted' | 'rejected'>
+  comment?: string | null
+}
+
 interface ReportsResult {
   reports: Report[]
   pagination: ReportsPagination | null
@@ -102,6 +108,7 @@ interface UpdateReportPayload {
 }
 
 const DEFAULT_REJECT_COMMENT = 'تم رفض البلاغ من الجهة المختصة.'
+const DEFAULT_FIX_REJECT_COMMENT = 'تم رفض الإصلاح.'
 const CLASSIFICATION_STATUSES: ReportClassificationStatus[] = [
   'pending',
   'processing',
@@ -1005,6 +1012,24 @@ const rejectReport = async (
   return extractResponseData<ReviewActionData>(response.data)
 }
 
+const acceptFix = async (
+  id: string,
+): Promise<FixReviewActionData | null> => {
+  const response = await apiClient.post<ApiEnvelope<FixReviewActionData>>(`/fixes/${id}/accept`)
+  return extractResponseData<FixReviewActionData>(response.data)
+}
+
+const rejectFix = async (
+  id: string,
+  comment: string = DEFAULT_FIX_REJECT_COMMENT,
+): Promise<FixReviewActionData | null> => {
+  const response = await apiClient.post<ApiEnvelope<FixReviewActionData>>(`/fixes/${id}/reject`, {
+    comment,
+  })
+
+  return extractResponseData<FixReviewActionData>(response.data)
+}
+
 const updateReport = async (
   id: string,
   payload: UpdateReportPayload,
@@ -1029,6 +1054,8 @@ const reportService = {
   getReportById,
   acceptReport,
   rejectReport,
+  acceptFix,
+  rejectFix,
   updateReport,
 }
 

@@ -3,8 +3,10 @@ import { formatArabicDate } from '../../utils/reportPresentation'
 
 interface FixesListProps {
   fixes: Fix[]
+  reportLabelById?: Record<string, string>
   selectedFixId?: string | null
   onSelectFix?: (fix: Fix) => void
+  onViewDetails?: (fix: Fix) => void
 }
 
 const FIX_STATUS_LABELS: Record<FixStatus, string> = {
@@ -27,8 +29,10 @@ const getFixStatusClassName = (status: FixStatus) => {
 
 const FixesList = ({
   fixes,
+  reportLabelById = {},
   selectedFixId = null,
   onSelectFix,
+  onViewDetails,
 }: FixesListProps) => {
   return (
     <div className="space-y-3">
@@ -77,11 +81,25 @@ const FixesList = ({
               ) : null}
 
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-                <span>البلاغ: {fix.reportId}</span>
+                <span>البلاغ: {reportLabelById[fix.reportId] ?? 'جاري تحميل بيانات البلاغ...'}</span>
                 <span>أنشئ في: {formatArabicDate(fix.createdAt)}</span>
                 <span>آخر تحديث: {formatArabicDate(fix.updatedAt)}</span>
-                <span>معرف الإصلاح: {fix.id}</span>
               </div>
+
+              {onViewDetails ? (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onViewDetails(fix)
+                    }}
+                    className="inline-flex items-center justify-center rounded-lg border border-amber-300/70 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-700 transition hover:bg-amber-500/20 dark:border-amber-400/45 dark:bg-amber-500/15 dark:text-amber-200"
+                  >
+                    عرض التفاصيل
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </article>

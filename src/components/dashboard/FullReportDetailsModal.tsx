@@ -17,11 +17,14 @@ interface FullReportDetailsModalProps {
   isOpen: boolean
   reportId: string | null
   typeLabelsByCode?: Record<string, string>
+  authorityLabelsById?: Record<string, string>
   onClose: () => void
 }
 
 const FALLBACK_TEXT = 'غير متوفر'
 const DEFAULT_ERROR_MESSAGE = 'تعذر تحميل تفاصيل البلاغ.'
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const normalizeText = (value: string | null | undefined) => {
   if (!value) {
@@ -58,10 +61,32 @@ const formatLocation = (report: Report) => {
   return `${report.location.lat} ، ${report.location.lng}`
 }
 
+const formatAuthorityLabel = (
+  authorityId: string | null,
+  authorityLabelsById: Record<string, string>,
+) => {
+  if (!authorityId) {
+    return FALLBACK_TEXT
+  }
+
+  return authorityLabelsById[authorityId] ?? FALLBACK_TEXT
+}
+
+const formatReviewerLabel = (reviewer: string | null) => {
+  const normalized = normalizeText(reviewer)
+
+  if (normalized === FALLBACK_TEXT) {
+    return normalized
+  }
+
+  return UUID_PATTERN.test(normalized) ? FALLBACK_TEXT : normalized
+}
+
 const FullReportDetailsModal = ({
   isOpen,
   reportId,
   typeLabelsByCode = {},
+  authorityLabelsById = {},
   onClose,
 }: FullReportDetailsModalProps) => {
   const [report, setReport] = useState<Report | null>(null)
@@ -209,9 +234,9 @@ const FullReportDetailsModal = ({
                 <p>محاولات التصنيف: <span className="font-semibold text-slate-100">{report.classificationAttempts === null ? FALLBACK_TEXT : String(report.classificationAttempts)}</span></p>
                 <p>{getAiReviewOutcomeLabel(report)}: <span className="font-semibold text-slate-100">{getAiReviewOutcomeMessage(report)}</span></p>
                 <p>تاريخ التصنيف: <span className="font-semibold text-slate-100">{formatDateOrFallback(report.classifiedAt)}</span></p>
-                <p>الجهة المسندة: <span className="font-semibold text-slate-100">{normalizeText(report.assignedAuth)}</span></p>
+                <p>الجهة المسندة: <span className="font-semibold text-slate-100">{formatAuthorityLabel(report.assignedAuth, authorityLabelsById)}</span></p>
                 <p>تعليق المراجعة: <span className="font-semibold text-slate-100">{normalizeText(report.reviewComment)}</span></p>
-                <p>تمت المراجعة بواسطة: <span className="font-semibold text-slate-100">{normalizeText(report.reviewedBy)}</span></p>
+                <p>تمت المراجعة بواسطة: <span className="font-semibold text-slate-100">{formatReviewerLabel(report.reviewedBy)}</span></p>
                 <p>تاريخ المراجعة: <span className="font-semibold text-slate-100">{formatDateOrFallback(report.reviewedAt)}</span></p>
                 <p>تاريخ الإنشاء: <span className="font-semibold text-slate-100">{formatDateOrFallback(report.createdAt)}</span></p>
                 <p>الموقع: <span className="font-semibold text-slate-100">{formatLocation(report)}</span></p>

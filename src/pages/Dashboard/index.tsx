@@ -10,6 +10,7 @@ import ReportsFilters from '../../components/dashboard/ReportsFilters'
 import ReportsTable from '../../components/dashboard/ReportsTable'
 import StatCard from '../../components/dashboard/StatCard'
 import FullReportDetailsModal from '../../components/dashboard/FullReportDetailsModal'
+import FullFixDetailsModal from '../../components/dashboard/FullFixDetailsModal'
 import HumanReviewModal from '../../components/dashboard/HumanReviewModal'
 import useAuth from '../../hooks/useAuth'
 import useAuthorityReports from '../../hooks/useAuthorityReports'
@@ -28,11 +29,12 @@ import type {
 } from '../../types/report'
 import type { AuthoritySummary } from '../../types/authority'
 import { getApiErrorMessage } from '../../utils/apiResponse'
-import { getReportFilterTabs } from '../../utils/reportPresentation'
+import { getReportFilterTabs, getReportTypeLabel } from '../../utils/reportPresentation'
 
 const DEFAULT_TYPES_ERROR_MESSAGE = 'تعذر تحميل أنواع البلاغات.'
 const DEFAULT_AUTHORITIES_ERROR_MESSAGE = 'تعذر تحميل الجهات المسندة.'
 const DEFAULT_FIXES_ERROR_MESSAGE = 'تعذر تحميل الإصلاحات.'
+const DEFAULT_FIX_ACTION_ERROR_MESSAGE = 'تعذر تنفيذ الإجراء على الإصلاح.'
 const DEFAULT_FIXES_PAGE_SIZE = 20
 const FIXES_STATUS_OPTIONS: Array<{ value: 'all' | FixStatus; label: string }> = [
   { value: 'all', label: 'كل الحالات' },
@@ -44,6 +46,13 @@ const FIXES_STATUS_OPTIONS: Array<{ value: 'all' | FixStatus; label: string }> =
 interface SelectOption {
   value: string
   label: string
+}
+
+const getReportDisplayLabel = (
+  report: Report,
+  typeLabelsByCode: Record<string, string>,
+) => {
+  return getReportTypeLabel(report, typeLabelsByCode)
 }
 
 const DashboardPage = () => {
@@ -82,12 +91,19 @@ const DashboardPage = () => {
   const [isMyFixesRefreshing, setIsMyFixesRefreshing] = useState(false)
   const [myFixesErrorMessage, setMyFixesErrorMessage] = useState<string | null>(null)
   const [selectedFix, setSelectedFix] = useState<Fix | null>(null)
+  const [fixReportsById, setFixReportsById] = useState<Record<string, Report>>({})
+  const [isFullFixDetailsOpen, setIsFullFixDetailsOpen] = useState(false)
+  const [fullDetailsFix, setFullDetailsFix] = useState<Fix | null>(null)
+  const [fixActionErrorMessage, setFixActionErrorMessage] = useState<string | null>(null)
+  const [isAcceptFixLoading, setIsAcceptFixLoading] = useState(false)
+  const [isRejectFixLoading, setIsRejectFixLoading] = useState(false)
   const [fixesStatusFilter, setFixesStatusFilter] = useState<'all' | FixStatus>('all')
   const [fixesAuthorityFilter, setFixesAuthorityFilter] = useState('')
 
   const filterTabs = useMemo(() => getReportFilterTabs(user?.role ?? null), [user?.role])
   const isAdminViewer = user?.role === 'admin'
   const isAuthorityViewer = user?.role === 'authority'
+  const isPrivilegedViewer = isAdminViewer || isAuthorityViewer
 
   const {
     reports,
@@ -142,6 +158,14 @@ const DashboardPage = () => {
     ? assignedAuthFilter.trim() || undefined
     : undefined
   const fixesStatusQuery = fixesStatusFilter === 'all' ? undefined : fixesStatusFilter
+  const fixesUserQuery = useMemo(() => {
+    if (!isAuthorityViewer) {
+      return undefined
+    }
+
+    return user?.id?.trim() || undefined
+  }, [isAuthorityViewer, user?.id])
+
   const fixesAuthorityQuery = useMemo(() => {
     if (isAdminViewer) {
       return fixesAuthorityFilter.trim() || undefined
@@ -161,6 +185,37 @@ const DashboardPage = () => {
     })),
     [authorities],
   )
+
+  const authorityLabelsById = useMemo(() => {
+    return authorities.reduce<Record<string, string>>((acc, authority) => {
+      acc[authority.id] = authority.name
+      return acc
+    }, {})
+  }, [authorities])
+
+  const fixReportLabelById = useMemo(() => {
+    const labels: Record<string, string> = {}
+
+    const registerReport = (report: Report | null) => {
+      if (!report) {
+        return
+      }
+
+      labels[report.id] = getReportDisplayLabel(report, typeLabelsByCode)
+    }
+
+    for (const report of reports) {
+      registerReport(report)
+    }
+
+    for (const report of Object.values(fixReportsById)) {
+      registerReport(report)
+    }
+
+    registerReport(activeReportFixesReport)
+
+    return labels
+  }, [activeReportFixesReport, fixReportsById, reports, typeLabelsByCode])
 
   useEffect(() => {
     let isMounted = true
@@ -200,7 +255,7 @@ const DashboardPage = () => {
   }, [])
 
   useEffect(() => {
-    if (!isAdminViewer) {
+    if (!isPrivilegedViewer) {
       setAuthorities([])
       setAssignedAuthFilter('')
       setAuthoritiesErrorMessage(null)
@@ -245,7 +300,7 @@ const DashboardPage = () => {
     return () => {
       isMounted = false
     }
-  }, [isAdminViewer])
+  }, [isPrivilegedViewer])
 
   useEffect(() => {
     if (!isAdminViewer || !assignedAuthFilter) {
@@ -357,7 +412,6 @@ const DashboardPage = () => {
 
     try {
       const response = await reportService.listReportFixes(reportId)
-
       setReportFixes(response.fixes)
     } catch (error) {
       setReportFixes([])
@@ -387,6 +441,7 @@ const DashboardPage = () => {
 
     try {
       const response = await reportService.listFixes({
+        user: fixesUserQuery,
         status: fixesStatusQuery,
         authority: fixesAuthorityQuery,
         page: targetPage,
@@ -405,7 +460,11 @@ const DashboardPage = () => {
       setIsMyFixesLoading(false)
       setIsMyFixesRefreshing(false)
     }
-  }, [fixesAuthorityQuery, fixesStatusQuery, user])
+  }, [fixesAuthorityQuery, fixesStatusQuery, fixesUserQuery, user])
+
+  const handleSelectFix = useCallback((fix: Fix) => {
+    setSelectedFix(fix)
+  }, [])
 
   const handleOpenReportFixes = useCallback((report: Report) => {
     setActiveSection('report-fixes')
@@ -577,6 +636,61 @@ const DashboardPage = () => {
     void loadMyFixes(1, DEFAULT_FIXES_PAGE_SIZE)
   }, [activeSection, loadMyFixes, user])
 
+  useEffect(() => {
+    const reportIds = new Set<string>()
+
+    for (const fix of myFixes) {
+      reportIds.add(fix.reportId)
+    }
+
+    for (const fix of reportFixes) {
+      reportIds.add(fix.reportId)
+    }
+
+    const missingReportIds = Array.from(reportIds).filter((reportId) => !fixReportsById[reportId])
+
+    if (missingReportIds.length === 0) {
+      return
+    }
+
+    let isMounted = true
+
+    const loadReports = async () => {
+      const loadedReports = await Promise.all(
+        missingReportIds.map(async (reportId) => {
+          try {
+            const report = await reportService.getReportById(reportId)
+            return { reportId, report }
+          } catch {
+            return { reportId, report: null }
+          }
+        }),
+      )
+
+      if (!isMounted) {
+        return
+      }
+
+      setFixReportsById((prev) => {
+        const next = { ...prev }
+
+        for (const loaded of loadedReports) {
+          if (loaded.report) {
+            next[loaded.reportId] = loaded.report
+          }
+        }
+
+        return next
+      })
+    }
+
+    void loadReports()
+
+    return () => {
+      isMounted = false
+    }
+  }, [fixReportsById, myFixes, reportFixes])
+
   const handlePageChange = (targetPage: number) => {
     if (targetPage < 1 || targetPage > totalPages || targetPage === effectiveCurrentPage) {
       return
@@ -625,6 +739,117 @@ const DashboardPage = () => {
     void loadMyFixes(myFixesPage, myFixesPageSize, true)
   }
 
+  const handleOpenFixDetails = useCallback((fix: Fix) => {
+    setFullDetailsFix(fix)
+    setFixActionErrorMessage(null)
+    setIsFullFixDetailsOpen(true)
+  }, [])
+
+  const sidebarSelectedReport = useMemo(() => {
+    if (activeSection === 'report-fixes') {
+      return activeReportFixesReport
+    }
+
+    return selectedReport
+  }, [activeReportFixesReport, activeSection, selectedReport])
+
+  const sidebarDetailsMode = useMemo(() => {
+    if (activeSection === 'assigned-reports') {
+      return 'none' as const
+    }
+
+    return 'report' as const
+  }, [activeSection])
+
+  const handleCloseFixDetails = useCallback(() => {
+    if (isAcceptFixLoading || isRejectFixLoading) {
+      return
+    }
+
+    setIsFullFixDetailsOpen(false)
+    setFixActionErrorMessage(null)
+  }, [isAcceptFixLoading, isRejectFixLoading])
+
+  const applyFixUpdate = useCallback((fixId: string, patch: Partial<Fix>) => {
+    setMyFixes((prev) => prev.map((fix) => (fix.id === fixId ? { ...fix, ...patch } : fix)))
+    setReportFixes((prev) => prev.map((fix) => (fix.id === fixId ? { ...fix, ...patch } : fix)))
+    setSelectedFix((prev) => (prev?.id === fixId ? { ...prev, ...patch } : prev))
+    setFullDetailsFix((prev) => (prev?.id === fixId ? { ...prev, ...patch } : prev))
+  }, [])
+
+  const handleAcceptFix = useCallback(async (fix: Fix) => {
+    if (fix.status !== 'pending') {
+      return
+    }
+
+    setFixActionErrorMessage(null)
+    setIsAcceptFixLoading(true)
+
+    try {
+      const response = await reportService.acceptFix(fix.id)
+      applyFixUpdate(fix.id, {
+        status: response?.status ?? 'accepted',
+      })
+
+      if (activeSection === 'assigned-reports') {
+        await loadMyFixes(myFixesPage, myFixesPageSize, true)
+      }
+
+      if (activeSection === 'report-fixes' && activeReportFixesReport) {
+        await loadReportFixes(activeReportFixesReport.id, true)
+      }
+    } catch (error) {
+      setFixActionErrorMessage(getApiErrorMessage(error, DEFAULT_FIX_ACTION_ERROR_MESSAGE))
+    } finally {
+      setIsAcceptFixLoading(false)
+    }
+  }, [
+    activeReportFixesReport,
+    activeSection,
+    applyFixUpdate,
+    loadMyFixes,
+    loadReportFixes,
+    myFixesPage,
+    myFixesPageSize,
+  ])
+
+  const handleRejectFix = useCallback(async (fix: Fix, comment: string) => {
+    if (fix.status !== 'pending') {
+      return
+    }
+
+    setFixActionErrorMessage(null)
+    setIsRejectFixLoading(true)
+
+    try {
+      const response = await reportService.rejectFix(fix.id, comment)
+      applyFixUpdate(fix.id, {
+        status: response?.status ?? 'rejected',
+        comment: response?.comment ?? comment,
+      })
+
+      if (activeSection === 'assigned-reports') {
+        await loadMyFixes(myFixesPage, myFixesPageSize, true)
+      }
+
+      if (activeSection === 'report-fixes' && activeReportFixesReport) {
+        await loadReportFixes(activeReportFixesReport.id, true)
+      }
+    } catch (error) {
+      setFixActionErrorMessage(getApiErrorMessage(error, DEFAULT_FIX_ACTION_ERROR_MESSAGE))
+    } finally {
+      setIsRejectFixLoading(false)
+    }
+  }, [
+    activeReportFixesReport,
+    activeSection,
+    applyFixUpdate,
+    loadMyFixes,
+    loadReportFixes,
+    myFixesPage,
+    myFixesPageSize,
+  ])
+
   const renderSectionContent = () => {
     if (activeSection === 'assigned-reports') {
       return (
@@ -635,7 +860,7 @@ const DashboardPage = () => {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">إصلاحات</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">عرض الإصلاحات مباشرة من الخادم باستخدام فلاتر backend (status, authority).</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">عرض الإصلاحات مباشرة من الخادم </p>
             </div>
 
             <button
@@ -710,8 +935,10 @@ const DashboardPage = () => {
             <div className="space-y-3">
               <FixesList
                 fixes={myFixes}
+                reportLabelById={fixReportLabelById}
                 selectedFixId={selectedFix?.id ?? null}
-                onSelectFix={setSelectedFix}
+                onSelectFix={handleSelectFix}
+                onViewDetails={handleOpenFixDetails}
               />
 
               <Pagination
@@ -739,7 +966,7 @@ const DashboardPage = () => {
               <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">إصلاحات البلاغ</h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {activeReportFixesReport
-                  ? `رقم البلاغ: ${activeReportFixesReport.id}`
+                  ? `البلاغ: ${getReportDisplayLabel(activeReportFixesReport, typeLabelsByCode)}`
                   : 'لم يتم تحديد بلاغ حتى الآن.'}
               </p>
             </div>
@@ -788,8 +1015,10 @@ const DashboardPage = () => {
                 <div className="space-y-3">
                   <FixesList
                     fixes={reportFixes}
+                    reportLabelById={fixReportLabelById}
                     selectedFixId={selectedFix?.id ?? null}
-                    onSelectFix={setSelectedFix}
+                    onSelectFix={handleSelectFix}
+                    onViewDetails={handleOpenFixDetails}
                   />
                 </div>
               )}
@@ -953,15 +1182,8 @@ const DashboardPage = () => {
           <DashboardSidebar
             activeSection={activeSection}
             onSelectSection={setActiveSection}
-            selectedReport={selectedReport}
-            selectedFix={selectedFix}
-            detailsMode={
-              activeSection === 'report-fixes'
-                ? (reportFixes.length > 0 ? 'fix' : 'none')
-                : activeSection === 'assigned-reports'
-                  ? (myFixes.length > 0 ? 'fix' : 'none')
-                  : 'report'
-            }
+            selectedReport={sidebarSelectedReport}
+            detailsMode={sidebarDetailsMode}
             viewerRole={user?.role ?? null}
             typeLabelsByCode={typeLabelsByCode}
             onViewFullDetails={handleOpenFullDetails}
@@ -973,7 +1195,21 @@ const DashboardPage = () => {
         isOpen={isFullDetailsOpen}
         reportId={fullDetailsReportId}
         typeLabelsByCode={typeLabelsByCode}
+        authorityLabelsById={authorityLabelsById}
         onClose={handleCloseFullDetails}
+      />
+
+      <FullFixDetailsModal
+        isOpen={isFullFixDetailsOpen}
+        fix={fullDetailsFix}
+        reportLabel={fullDetailsFix ? (fixReportLabelById[fullDetailsFix.reportId] ?? 'جاري تحميل بيانات البلاغ...') : 'غير متوفر'}
+        canReview={isPrivilegedViewer}
+        isAccepting={isAcceptFixLoading}
+        isRejecting={isRejectFixLoading}
+        actionErrorMessage={fixActionErrorMessage}
+        onAccept={handleAcceptFix}
+        onReject={handleRejectFix}
+        onClose={handleCloseFixDetails}
       />
 
       <HumanReviewModal

@@ -2,8 +2,6 @@ import type { ComponentType, SVGProps } from 'react'
 import logo from '../../assets/logo.png'
 import type { Report } from '../../types/report'
 import type { UserRole } from '../../types/auth'
-import type { Fix } from '../../types/fix'
-import FixDetailsPanel from './FixDetailsPanel'
 import ReportDetailsPanel from './ReportDetailsPanel'
 
 type DashboardSection = 'home' | 'map' | 'assigned-reports' | 'profile' | 'report-fixes'
@@ -18,8 +16,7 @@ interface DashboardSidebarProps {
   activeSection: DashboardSection
   onSelectSection: (section: DashboardSection) => void
   selectedReport: Report | null
-  selectedFix?: Fix | null
-  detailsMode?: 'report' | 'fix' | 'none'
+  detailsMode?: 'report' | 'none'
   viewerRole?: UserRole | null
   typeLabelsByCode?: Record<string, string>
   isDetailsLoading?: boolean
@@ -75,7 +72,6 @@ const DashboardSidebar = ({
   activeSection,
   onSelectSection,
   selectedReport,
-  selectedFix = null,
   detailsMode = 'report',
   viewerRole = null,
   typeLabelsByCode = {},
@@ -147,22 +143,18 @@ const DashboardSidebar = ({
         {detailsMode !== 'none' ? (
           <div className="mt-5 flex min-h-0 flex-1 flex-col border-t border-slate-200/70 pt-4 dark:border-white/10">
             <p className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              {detailsMode === 'fix' ? 'Fix Details' : 'Details Panel'}
+              Details Panel
             </p>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {detailsMode === 'fix' ? (
-                <FixDetailsPanel fix={selectedFix} />
-              ) : (
-                <ReportDetailsPanel
-                  report={selectedReport}
-                  viewerRole={viewerRole}
-                  typeLabelsByCode={typeLabelsByCode}
-                  isLoading={isDetailsLoading}
-                  errorMessage={detailsErrorMessage}
-                  onViewFullDetails={onViewFullDetails}
-                />
-              )}
+              <ReportDetailsPanel
+                report={selectedReport}
+                viewerRole={viewerRole}
+                typeLabelsByCode={typeLabelsByCode}
+                isLoading={isDetailsLoading}
+                errorMessage={detailsErrorMessage}
+                onViewFullDetails={onViewFullDetails}
+              />
             </div>
           </div>
         ) : null}
