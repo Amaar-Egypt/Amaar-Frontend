@@ -137,6 +137,7 @@ const ReportsTable = ({
                 const isFixesCountLoading = Boolean(fixesCountLoadingByReportId[report.id])
                 const fixesCountError = fixesCountErrorByReportId[report.id]
                 const fixesCount = fixesCountByReportId[report.id]
+                const isClassificationCompleted = report.classificationStatus === 'completed'
                 return (
                   <tr
                     key={report.id}
@@ -202,7 +203,7 @@ const ReportsTable = ({
                     <td className="px-4 py-3">
                       {report.status === 'ai_review' ? (
                         <div className="flex min-w-[220px] flex-wrap items-center gap-2">
-                          {canHandleAiReview ? (
+                          {canHandleAiReview && isClassificationCompleted ? (
                             <>
                               <button
                                 type="button"
@@ -228,7 +229,11 @@ const ReportsTable = ({
                                 {activeAction === 'reject-ai' ? 'جارٍ التحويل لبشري...' : 'رفض الذكاء'}
                               </button>
                             </>
-                            ) : null}
+                          ) : canHandleAiReview ? (
+                            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                              انتظار اكتمال التصنيف الذكي
+                            </span>
+                          ) : null}
                         </div>
                       ) : null}
 
