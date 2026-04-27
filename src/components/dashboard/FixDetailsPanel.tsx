@@ -14,6 +14,8 @@ const FIX_STATUS_LABELS: Record<FixStatus, string> = {
   rejected: 'مرفوض',
 }
 
+const FALLBACK_IMAGE_TEXT = 'لا توجد صورة.'
+
 const getFixStatusTone = (status: FixStatus) => {
   if (status === 'accepted') {
     return 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/40 dark:bg-emerald-500/15 dark:text-emerald-200'
@@ -62,11 +64,17 @@ const FixDetailsPanel = ({
       </h3>
 
       <div className="overflow-hidden rounded-xl border border-slate-200/70 dark:border-white/10">
-        <img
-          src={fix.imageUrl}
-          alt="صورة الإصلاح"
-          className="h-40 w-full object-cover"
-        />
+        {fix.imageUrl ? (
+          <img
+            src={fix.imageUrl}
+            alt="صورة الإصلاح"
+            className="h-40 w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-40 items-center justify-center bg-slate-100 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+            {FALLBACK_IMAGE_TEXT}
+          </div>
+        )}
       </div>
 
       <div className="mt-3 space-y-2">

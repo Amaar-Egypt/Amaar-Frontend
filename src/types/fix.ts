@@ -6,8 +6,8 @@ export interface Fix {
   id: string
   reportId: string
   userId: string | null
-  imageUrl: string
-  description: string
+  imageUrl: string | null
+  description: string | null
   status: FixStatus
   pointsAwarded: number
   comment: string | null

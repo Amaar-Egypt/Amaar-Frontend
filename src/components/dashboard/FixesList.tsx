@@ -15,6 +15,8 @@ const FIX_STATUS_LABELS: Record<FixStatus, string> = {
   rejected: 'مرفوض',
 }
 
+const FALLBACK_IMAGE_TEXT = 'لا توجد صورة.'
+
 const getFixStatusClassName = (status: FixStatus) => {
   if (status === 'accepted') {
     return 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/45 dark:bg-emerald-500/18 dark:text-emerald-200'
@@ -50,15 +52,21 @@ const FixesList = ({
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
             <div className="h-28 w-full overflow-hidden rounded-xl border border-slate-200/70 bg-slate-100 dark:border-white/10 dark:bg-slate-800 sm:w-40">
-              <img
-                src={fix.imageUrl}
-                alt="صورة الإصلاح"
-                className="h-full w-full object-cover"
-                loading="lazy"
-                onError={(event) => {
-                  event.currentTarget.style.display = 'none'
-                }}
-              />
+              {fix.imageUrl ? (
+                <img
+                  src={fix.imageUrl}
+                  alt="صورة الإصلاح"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  onError={(event) => {
+                    event.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500 dark:text-slate-300">
+                  {FALLBACK_IMAGE_TEXT}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 space-y-2">

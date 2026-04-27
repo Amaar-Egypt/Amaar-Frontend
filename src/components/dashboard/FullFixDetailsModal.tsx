@@ -16,7 +16,8 @@ interface FullFixDetailsModalProps {
 }
 
 const FALLBACK_TEXT = 'غير متوفر'
-const REQUIRED_REJECT_COMMENT_MESSAGE = 'سبب الرفض مطلوب.'
+const MIN_REJECT_COMMENT_LENGTH = 3
+const REQUIRED_REJECT_COMMENT_MESSAGE = `سبب الرفض يجب ألا يقل عن ${MIN_REJECT_COMMENT_LENGTH} أحرف.`
 
 const FIX_STATUS_LABELS: Record<FixStatus, string> = {
   pending: 'قيد المراجعة',
@@ -99,7 +100,7 @@ const FullFixDetailsModal = ({
   const handleRejectSubmit = async () => {
     const normalizedComment = rejectComment.trim()
 
-    if (!normalizedComment) {
+    if (normalizedComment.length < MIN_REJECT_COMMENT_LENGTH) {
       setValidationError(REQUIRED_REJECT_COMMENT_MESSAGE)
       return
     }

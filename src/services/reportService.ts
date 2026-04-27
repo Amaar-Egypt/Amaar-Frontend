@@ -473,9 +473,6 @@ const normalizeFix = (raw: unknown): Fix | null => {
   if (
     !id ||
     !reportId ||
-    !userId ||
-    !imageUrl ||
-    !description ||
     !status ||
     pointsAwarded === null ||
     !createdAt ||
@@ -487,9 +484,9 @@ const normalizeFix = (raw: unknown): Fix | null => {
   return {
     id,
     reportId,
-    userId,
-    imageUrl,
-    description,
+    userId: userId ?? null,
+    imageUrl: imageUrl ?? null,
+    description: description ?? null,
     status,
     pointsAwarded: Math.max(0, Math.trunc(pointsAwarded)),
     comment: toNonEmptyString(source.comment),

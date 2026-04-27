@@ -7,7 +7,8 @@ interface AiRejectModalProps {
   onClose: () => void
 }
 
-const REQUIRED_REASON_MESSAGE = 'سبب رفض الذكاء مطلوب.'
+const MIN_REASON_LENGTH = 3
+const REQUIRED_REASON_MESSAGE = `سبب الرفض يجب ألا يقل عن ${MIN_REASON_LENGTH} أحرف.`
 
 const AiRejectModal = ({
   isOpen,
@@ -52,7 +53,7 @@ const AiRejectModal = ({
   const handleConfirm = async () => {
     const normalizedReason = reason.trim()
 
-    if (!normalizedReason) {
+    if (normalizedReason.length < MIN_REASON_LENGTH) {
       setValidationError(REQUIRED_REASON_MESSAGE)
       return
     }

@@ -787,8 +787,13 @@ const DashboardPage = () => {
 
     try {
       const response = await reportService.acceptFix(fix.id)
+      if (!response || response.status !== 'accepted') {
+        setFixActionErrorMessage(DEFAULT_FIX_ACTION_ERROR_MESSAGE)
+        return
+      }
+
       applyFixUpdate(fix.id, {
-        status: response?.status ?? 'accepted',
+        status: response.status,
       })
 
       if (activeSection === 'assigned-reports') {
@@ -823,9 +828,14 @@ const DashboardPage = () => {
 
     try {
       const response = await reportService.rejectFix(fix.id, comment)
+      if (!response || response.status !== 'rejected') {
+        setFixActionErrorMessage(DEFAULT_FIX_ACTION_ERROR_MESSAGE)
+        return
+      }
+
       applyFixUpdate(fix.id, {
-        status: response?.status ?? 'rejected',
-        comment: response?.comment ?? comment,
+        status: response.status,
+        comment: response.comment ?? comment,
       })
 
       if (activeSection === 'assigned-reports') {
