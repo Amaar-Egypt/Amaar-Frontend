@@ -14,6 +14,9 @@ interface ReportsTableProps {
   viewerRole?: UserRole | null
   selectedReportId?: string | null
   typeLabelsByCode?: Record<string, string>
+  fixesCountByReportId: Record<string, number>
+  fixesCountLoadingByReportId: Record<string, boolean>
+  fixesCountErrorByReportId: Record<string, string>
   actionLoadingById: Record<string, string>
   onAccept: (reportId: string) => void
   onReject: (params: { reportId: string; reason: string }) => Promise<boolean> | boolean
@@ -21,6 +24,7 @@ interface ReportsTableProps {
   onOpenHumanReview: (report: Report) => void
   onStartWork: (reportId: string) => void
   onResolve: (reportId: string) => void
+  onOpenReportFixes: (report: Report) => void
   onRowClick?: (report: Report) => void
 }
 
@@ -53,6 +57,9 @@ const ReportsTable = ({
   viewerRole = null,
   selectedReportId = null,
   typeLabelsByCode = {},
+  fixesCountByReportId,
+  fixesCountLoadingByReportId,
+  fixesCountErrorByReportId,
   actionLoadingById,
   onAccept,
   onReject,
@@ -60,6 +67,7 @@ const ReportsTable = ({
   onOpenHumanReview,
   onStartWork,
   onResolve,
+  onOpenReportFixes,
   onRowClick,
 }: ReportsTableProps) => {
   const isAuthorityViewer = viewerRole === 'authority'
@@ -107,6 +115,7 @@ const ReportsTable = ({
               <th className="px-4 py-3 text-right font-bold">الأولوية</th>
               <th className="px-4 py-3 text-right font-bold">التاريخ</th>
               <th className="px-4 py-3 text-right font-bold">الحالة</th>
+              <th className="px-4 py-3 text-right font-bold">الإصلاحات</th>
               <th className="px-4 py-3 text-right font-bold">الإجراء</th>
             </tr>
           </thead>
@@ -115,7 +124,7 @@ const ReportsTable = ({
             {reports.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-4 py-8 text-center text-sm font-medium text-slate-500 dark:text-slate-400"
                 >
                   لا توجد بلاغات مطابقة للفلاتر الحالية.
@@ -125,6 +134,9 @@ const ReportsTable = ({
               reports.map((report) => {
                 const activeAction = actionLoadingById[report.id]
                 const isSelected = selectedReportId === report.id
+                const isFixesCountLoading = Boolean(fixesCountLoadingByReportId[report.id])
+                const fixesCountError = fixesCountErrorByReportId[report.id]
+                const fixesCount = fixesCountByReportId[report.id]
                 const isClassificationCompleted = report.classificationStatus === 'completed'
                 return (
                   <tr
@@ -170,6 +182,23 @@ const ReportsTable = ({
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${getStatusClassName(report.status)}`}>
                         {getReportStatusLabel(report.status, viewerRole)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onOpenReportFixes(report)
+                        }}
+                        className="inline-flex min-w-[72px] items-center justify-center rounded-lg border border-cyan-300/70 bg-cyan-500/12 px-3 py-1 text-xs font-bold text-cyan-700 transition hover:bg-cyan-500/20 dark:border-cyan-400/45 dark:bg-cyan-500/15 dark:text-cyan-200"
+                        title="عرض إصلاحات البلاغ"
+                      >
+                        {isFixesCountLoading
+                          ? '...'
+                          : fixesCountError
+                            ? 'تعذر التحميل'
+                            : `${typeof fixesCount === 'number' ? fixesCount : 0}`}
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       {report.status === 'ai_review' ? (
