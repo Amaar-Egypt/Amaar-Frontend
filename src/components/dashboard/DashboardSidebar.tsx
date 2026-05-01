@@ -21,6 +21,7 @@ interface DashboardSidebarProps {
   typeLabelsByCode?: Record<string, string>
   isDetailsLoading?: boolean
   detailsErrorMessage?: string | null
+  detailsEmptyMessage?: string
   onViewFullDetails?: (report: Report) => void
 }
 
@@ -77,6 +78,7 @@ const DashboardSidebar = ({
   typeLabelsByCode = {},
   isDetailsLoading = false,
   detailsErrorMessage = null,
+  detailsEmptyMessage,
   onViewFullDetails,
 }: DashboardSidebarProps) => {
   return (
@@ -153,6 +155,7 @@ const DashboardSidebar = ({
                 typeLabelsByCode={typeLabelsByCode}
                 isLoading={isDetailsLoading}
                 errorMessage={detailsErrorMessage}
+                emptyMessage={detailsEmptyMessage}
                 onViewFullDetails={onViewFullDetails}
               />
             </div>

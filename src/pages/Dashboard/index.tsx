@@ -6,6 +6,7 @@ import DashboardSidebar, {
 } from '../../components/dashboard/DashboardSidebar'
 import DashboardTopbar from '../../components/dashboard/DashboardTopbar'
 import FixesList from '../../components/dashboard/FixesList'
+import ReportsMap from '../../components/dashboard/ReportsMap'
 import ReportsFilters from '../../components/dashboard/ReportsFilters'
 import ReportsTable from '../../components/dashboard/ReportsTable'
 import StatCard from '../../components/dashboard/StatCard'
@@ -35,6 +36,7 @@ const DEFAULT_TYPES_ERROR_MESSAGE = 'تعذر تحميل أنواع البلاغ
 const DEFAULT_AUTHORITIES_ERROR_MESSAGE = 'تعذر تحميل الجهات المسندة.'
 const DEFAULT_FIXES_ERROR_MESSAGE = 'تعذر تحميل الإصلاحات.'
 const DEFAULT_FIX_ACTION_ERROR_MESSAGE = 'تعذر تنفيذ الإجراء على الإصلاح.'
+const DEFAULT_MAP_DETAILS_ERROR_MESSAGE = 'تعذر تحميل تفاصيل البلاغ من الخريطة.'
 const DEFAULT_FIXES_PAGE_SIZE = 20
 const FIXES_STATUS_OPTIONS: Array<{ value: 'all' | FixStatus; label: string }> = [
   { value: 'all', label: 'كل الحالات' },
@@ -71,6 +73,11 @@ const DashboardPage = () => {
   const [isAuthoritiesLoading, setIsAuthoritiesLoading] = useState(false)
   const [authoritiesErrorMessage, setAuthoritiesErrorMessage] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
+  const [selectedMapReportId, setSelectedMapReportId] = useState<string | null>(null)
+  const [selectedMapReport, setSelectedMapReport] = useState<Report | null>(null)
+  const [mapReportsById, setMapReportsById] = useState<Record<string, Report>>({})
+  const [isMapReportLoading, setIsMapReportLoading] = useState(false)
+  const [mapReportErrorMessage, setMapReportErrorMessage] = useState<string | null>(null)
   const [isFullDetailsOpen, setIsFullDetailsOpen] = useState(false)
   const [fullDetailsReportId, setFullDetailsReportId] = useState<string | null>(null)
   const [isHumanReviewOpen, setIsHumanReviewOpen] = useState(false)
@@ -379,10 +386,76 @@ const DashboardPage = () => {
     setSelectedReport(report)
   }, [])
 
+  const handleSelectMapReport = useCallback((reportId: string) => {
+    setSelectedMapReportId(reportId)
+  }, [])
+
   const handleOpenFullDetails = useCallback((report: Report) => {
     setFullDetailsReportId(report.id)
     setIsFullDetailsOpen(true)
   }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'map') {
+      return
+    }
+
+    if (!selectedMapReportId) {
+      setSelectedMapReport(null)
+      setMapReportErrorMessage(null)
+      setIsMapReportLoading(false)
+      return
+    }
+
+    const cachedReport = mapReportsById[selectedMapReportId]
+
+    if (cachedReport) {
+      setSelectedMapReport(cachedReport)
+      setMapReportErrorMessage(null)
+      setIsMapReportLoading(false)
+      return
+    }
+
+    let isMounted = true
+    setSelectedMapReport(null)
+    setIsMapReportLoading(true)
+    setMapReportErrorMessage(null)
+
+    const loadMapReport = async () => {
+      try {
+        const report = await reportService.getReportById(selectedMapReportId)
+
+        if (!isMounted) {
+          return
+        }
+
+        setMapReportsById((prev) => ({
+          ...prev,
+          [report.id]: report,
+        }))
+        setSelectedMapReport(report)
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setSelectedMapReport(null)
+        setMapReportErrorMessage(
+          getApiErrorMessage(error, DEFAULT_MAP_DETAILS_ERROR_MESSAGE),
+        )
+      } finally {
+        if (isMounted) {
+          setIsMapReportLoading(false)
+        }
+      }
+    }
+
+    void loadMapReport()
+
+    return () => {
+      isMounted = false
+    }
+  }, [activeSection, mapReportsById, selectedMapReportId])
 
   const handleCloseFullDetails = useCallback(() => {
     setIsFullDetailsOpen(false)
@@ -750,8 +823,12 @@ const DashboardPage = () => {
       return activeReportFixesReport
     }
 
+    if (activeSection === 'map') {
+      return selectedMapReport
+    }
+
     return selectedReport
-  }, [activeReportFixesReport, activeSection, selectedReport])
+  }, [activeReportFixesReport, activeSection, selectedMapReport, selectedReport])
 
   const sidebarDetailsMode = useMemo(() => {
     if (activeSection === 'assigned-reports') {
@@ -760,6 +837,14 @@ const DashboardPage = () => {
 
     return 'report' as const
   }, [activeSection])
+
+  const sidebarDetailsLoading = activeSection === 'map' ? isMapReportLoading : false
+  const sidebarDetailsErrorMessage = activeSection === 'map'
+    ? mapReportErrorMessage
+    : null
+  const sidebarDetailsEmptyMessage = activeSection === 'map'
+    ? 'اختر بلاغًا من الخريطة لعرض تفاصيله هنا.'
+    : undefined
 
   const handleCloseFixDetails = useCallback(() => {
     if (isAcceptFixLoading || isRejectFixLoading) {
@@ -861,6 +946,15 @@ const DashboardPage = () => {
   ])
 
   const renderSectionContent = () => {
+    if (activeSection === 'map') {
+      return (
+        <ReportsMap
+          selectedReportId={selectedMapReportId}
+          onSelectReport={handleSelectMapReport}
+        />
+      )
+    }
+
     if (activeSection === 'assigned-reports') {
       return (
         <section
@@ -1044,7 +1138,7 @@ const DashboardPage = () => {
           dir="rtl"
           className="rounded-3xl border border-slate-200/70 bg-white/75 p-6 shadow-[0_18px_46px_rgba(15,23,42,0.1)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_28px_70px_rgba(2,6,23,0.48)]"
         >
-          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">{activeSection === 'map' ? 'الخريطة' : 'الملف الشخصي'}</h2>
+          <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">الملف الشخصي</h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
             هذه الواجهة سيتم تطويرها لاحقًا ضمن نفس بنية لوحة التحكم.
           </p>
@@ -1178,7 +1272,7 @@ const DashboardPage = () => {
 
       <div className="relative flex min-h-screen w-full items-stretch px-2 py-2 sm:px-4 sm:py-3 lg:px-5 lg:py-4">
         <div className="grid min-h-[calc(100vh-1rem)] w-full items-stretch gap-4 [direction:ltr] lg:grid-cols-[minmax(0,1fr)_22rem]">
-          <main className="min-w-0 space-y-4" dir="rtl">
+          <main className="min-w-0 flex min-h-0 flex-col gap-4" dir="rtl">
             <DashboardTopbar
               user={user}
               searchValue={searchTerm}
@@ -1196,6 +1290,9 @@ const DashboardPage = () => {
             detailsMode={sidebarDetailsMode}
             viewerRole={user?.role ?? null}
             typeLabelsByCode={typeLabelsByCode}
+            isDetailsLoading={sidebarDetailsLoading}
+            detailsErrorMessage={sidebarDetailsErrorMessage}
+            detailsEmptyMessage={sidebarDetailsEmptyMessage}
             onViewFullDetails={handleOpenFullDetails}
           />
         </div>
