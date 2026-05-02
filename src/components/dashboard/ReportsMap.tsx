@@ -37,8 +37,8 @@ const STATUS_LEGEND: Array<{ key: string; className: string; label: string }> = 
 const createPinIcon = (status: ReportStatus, isActive: boolean) => {
   return L.divIcon({
     className: `report-map-marker ${STATUS_CLASS_MAP[status]}${isActive ? ' report-map-marker--active' : ''}`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
   })
 }
 
