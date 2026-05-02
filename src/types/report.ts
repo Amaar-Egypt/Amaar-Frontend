@@ -67,6 +67,40 @@ export interface ReportsQuery {
   limit?: number
 }
 
+export interface ReportPinsQuery {
+  minLat: number
+  maxLat: number
+  minLng: number
+  maxLng: number
+  scale: number
+}
+
+export interface ReportPin {
+  id: string
+  lat: number
+  lng: number
+  status: ReportStatus
+}
+
+export interface ReportPinCluster {
+  lat: number
+  lng: number
+  count: number
+}
+
+export interface ReportPinsResultPins {
+  mode: 'pins'
+  pins: ReportPin[]
+}
+
+export interface ReportPinsResultClusters {
+  mode: 'clusters'
+  clusters: ReportPinCluster[]
+  total: number
+}
+
+export type ReportPinsResult = ReportPinsResultPins | ReportPinsResultClusters
+
 export interface DashboardStats {
   total: number
   aiReview: number

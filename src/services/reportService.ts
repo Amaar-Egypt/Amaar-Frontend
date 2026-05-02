@@ -5,6 +5,10 @@ import type {
   Report,
   ReportClassificationStatus,
   ReportLocation,
+  ReportPin,
+  ReportPinCluster,
+  ReportPinsQuery,
+  ReportPinsResult,
   ReportPriority,
   ReportsPagination,
   ReportsQuery,
@@ -115,6 +119,17 @@ const CLASSIFICATION_STATUSES: ReportClassificationStatus[] = [
   'completed',
   'failed',
 ]
+const REPORT_STATUSES: ReportStatus[] = [
+  'ai_review',
+  'human_review',
+  'pending',
+  'in_progress',
+  'resolved',
+]
+const REPORT_PIN_STATUS_ALIASES: Record<string, ReportStatus> = {
+  ready_for_execution: 'pending',
+  'معتمد وجاهز للتنفيذ': 'pending',
+}
 const FIX_STATUSES: FixStatus[] = ['pending', 'accepted', 'rejected']
 const PAGINATION_TOTAL_KEYS = [
   'total',
@@ -612,6 +627,133 @@ const normalizeReportsQuery = (
   return Object.keys(normalized).length ? normalized : undefined
 }
 
+const normalizeReportPinsQuery = (query: ReportPinsQuery): Record<string, number> => {
+  const minLat = toNumber(query.minLat)
+  const maxLat = toNumber(query.maxLat)
+  const minLng = toNumber(query.minLng)
+  const maxLng = toNumber(query.maxLng)
+  const scale = toNumber(query.scale)
+
+  if (
+    minLat === null ||
+    maxLat === null ||
+    minLng === null ||
+    maxLng === null ||
+    scale === null
+  ) {
+    throw new Error('تعذر قراءة حدود الخريطة المطلوبة.')
+  }
+
+  return {
+    minLat,
+    maxLat,
+    minLng,
+    maxLng,
+    scale: Math.round(scale),
+  }
+}
+
+const normalizeReportPinStatus = (value: unknown): ReportStatus | null => {
+  const rawStatus = toNonEmptyString(value)
+
+  if (!rawStatus) {
+    return null
+  }
+
+  if (REPORT_STATUSES.includes(rawStatus as ReportStatus)) {
+    return rawStatus as ReportStatus
+  }
+
+  const aliasMatch = REPORT_PIN_STATUS_ALIASES[rawStatus]
+  if (aliasMatch) {
+    return aliasMatch
+  }
+
+  console.warn(`[ReportsMap] Unmapped report pin status: ${rawStatus}`)
+  return null
+}
+
+const normalizeReportPin = (raw: unknown): ReportPin | null => {
+  if (!isObject(raw)) {
+    return null
+  }
+
+  const source = raw as UnknownObject
+  const id = toNonEmptyString(source.id)
+  const lat = toNumber(source.lat)
+  const lng = toNumber(source.lng)
+  const status = normalizeReportPinStatus(source.status)
+
+  if (!id || lat === null || lng === null || !status) {
+    return null
+  }
+
+  return {
+    id,
+    lat,
+    lng,
+    status,
+  }
+}
+
+const normalizeReportCluster = (raw: unknown): ReportPinCluster | null => {
+  if (!isObject(raw)) {
+    return null
+  }
+
+  const source = raw as UnknownObject
+  const lat = toNumber(source.lat)
+  const lng = toNumber(source.lng)
+  const count = toNumber(source.count)
+
+  if (lat === null || lng === null || count === null) {
+    return null
+  }
+
+  return {
+    lat,
+    lng,
+    count: Math.max(1, Math.trunc(count)),
+  }
+}
+
+const normalizeReportPinsPayload = (payload: unknown): ReportPinsResult => {
+  if (!isObject(payload)) {
+    throw new Error('تعذر قراءة بيانات الخريطة.')
+  }
+
+  const mode = toNonEmptyString(payload.mode)
+
+  if (mode === 'pins' || (!mode && Array.isArray(payload.pins))) {
+    const rawPins = Array.isArray(payload.pins) ? payload.pins : []
+    const pins = rawPins
+      .map((pin) => normalizeReportPin(pin))
+      .filter((pin): pin is ReportPin => pin !== null)
+
+    return {
+      mode: 'pins',
+      pins,
+    }
+  }
+
+  if (mode === 'clusters' || (!mode && Array.isArray(payload.clusters))) {
+    const rawClusters = Array.isArray(payload.clusters) ? payload.clusters : []
+    const clusters = rawClusters
+      .map((cluster) => normalizeReportCluster(cluster))
+      .filter((cluster): cluster is ReportPinCluster => cluster !== null)
+    const total = toNumber(payload.total)
+    const computedTotal = clusters.reduce((sum, cluster) => sum + cluster.count, 0)
+
+    return {
+      mode: 'clusters',
+      clusters,
+      total: Math.max(0, Math.trunc(total ?? computedTotal)),
+    }
+  }
+
+  throw new Error('تعذر قراءة بيانات الخريطة.')
+}
+
 const normalizeFixesQuery = (
   query?: FixesQuery,
 ): Record<string, string | number> | undefined => {
@@ -873,6 +1015,22 @@ const listReports = async (query?: ReportsQuery): Promise<ReportsResult> => {
   }
 }
 
+const listReportPins = async (query: ReportPinsQuery): Promise<ReportPinsResult> => {
+  const normalizedQuery = normalizeReportPinsQuery(query)
+
+  const response = await apiClient.get<ApiEnvelope<unknown> | unknown>('/reports/pins', {
+    params: normalizedQuery,
+  })
+
+  const payload = extractResponseData<unknown>(response.data)
+
+  if (!payload) {
+    throw new Error(extractResponseMessage(response.data) ?? 'تعذر تحميل البلاغات على الخريطة.')
+  }
+
+  return normalizeReportPinsPayload(payload)
+}
+
 const listReportFixes = async (
   reportId: string,
 ): Promise<ReportFixesResult> => {
@@ -1044,6 +1202,7 @@ const updateReport = async (
 const reportService = {
   listReportTypes,
   listReports,
+  listReportPins,
   listReportFixes,
   listFixes,
   getReportFixesCount,

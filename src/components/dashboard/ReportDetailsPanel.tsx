@@ -18,6 +18,7 @@ interface ReportDetailsPanelProps {
   typeLabelsByCode?: Record<string, string>
   isLoading?: boolean
   errorMessage?: string | null
+  emptyMessage?: string
   onViewFullDetails?: (report: Report) => void
 }
 
@@ -69,6 +70,7 @@ const ReportDetailsPanel = ({
   typeLabelsByCode = {},
   isLoading = false,
   errorMessage = null,
+  emptyMessage,
   onViewFullDetails,
 }: ReportDetailsPanelProps) => {
   if (isLoading) {
@@ -88,9 +90,11 @@ const ReportDetailsPanel = ({
   }
 
   if (!report) {
+    const message = emptyMessage ?? 'اختر بلاغًا من الجدول لعرض تفاصيله هنا.'
+
     return (
       <div className="rounded-2xl border border-slate-200/70 bg-white/75 p-4 text-sm text-slate-600 shadow-sm backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/45 dark:text-slate-300">
-        اختر بلاغًا من الجدول لعرض تفاصيله هنا.
+        {message}
       </div>
     )
   }
