@@ -7,12 +7,16 @@ import { getApiErrorMessage } from '../../utils/apiResponse'
 interface ReportsMapProps {
   selectedReportId?: string | null
   onSelectReport: (reportId: string) => void
+  initialCenter?: L.LatLngExpression
+  initialZoom?: number
 }
 
 const DEFAULT_CENTER: L.LatLngExpression = [30.0444, 31.2357]
 const DEFAULT_ZOOM = 15
 const FETCH_DEBOUNCE_MS = 250
 const DEFAULT_ERROR_MESSAGE = 'تعذر تحميل البلاغات على الخريطة.'
+const GEOLOCATION_TIMEOUT_MS = 4500
+const GEOLOCATION_MAX_AGE_MS = 60_000
 
 const STATUS_CLASS_MAP: Record<ReportStatus, string> = {
   ai_review: 'report-map-marker--ai-review',
@@ -47,7 +51,20 @@ const createClusterIcon = (count: number) => {
   })
 }
 
-const ReportsMap = ({ selectedReportId, onSelectReport }: ReportsMapProps) => {
+const resolveInitialZoom = (zoom: number | undefined) => {
+  if (typeof zoom === 'number' && Number.isFinite(zoom)) {
+    return Math.max(1, Math.round(zoom))
+  }
+
+  return DEFAULT_ZOOM
+}
+
+const ReportsMap = ({
+  selectedReportId,
+  onSelectReport,
+  initialCenter,
+  initialZoom,
+}: ReportsMapProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<L.Map | null>(null)
   const markersLayerRef = useRef<L.LayerGroup | null>(null)
@@ -117,13 +134,16 @@ const ReportsMap = ({ selectedReportId, onSelectReport }: ReportsMapProps) => {
 
     isMountedRef.current = true
 
+    const resolvedCenter = initialCenter ?? DEFAULT_CENTER
+    const resolvedZoom = resolveInitialZoom(initialZoom)
+
     const map = L.map(containerRef.current, {
       zoomControl: true,
       preferCanvas: true,
       zoomSnap: 1,
     })
 
-    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM)
+    map.setView(resolvedCenter, resolvedZoom)
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -142,6 +162,29 @@ const ReportsMap = ({ selectedReportId, onSelectReport }: ReportsMapProps) => {
     map.on('moveend', handleViewportChange)
     map.on('zoomend', handleViewportChange)
 
+    if (!initialCenter && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!isMountedRef.current || !mapRef.current) {
+            return
+          }
+
+          mapRef.current.setView(
+            [position.coords.latitude, position.coords.longitude],
+            resolvedZoom,
+          )
+        },
+        () => {
+          // Keep the fallback center when geolocation is unavailable.
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: GEOLOCATION_TIMEOUT_MS,
+          maximumAge: GEOLOCATION_MAX_AGE_MS,
+        },
+      )
+    }
+
     void fetchPins()
 
     window.setTimeout(() => {
@@ -149,6 +192,9 @@ const ReportsMap = ({ selectedReportId, onSelectReport }: ReportsMapProps) => {
     }, 0)
 
     return () => {
+      isMountedRef.current = false
+      requestIdRef.current += 1
+
       if (debounceRef.current) {
         window.clearTimeout(debounceRef.current)
       }
@@ -158,9 +204,17 @@ const ReportsMap = ({ selectedReportId, onSelectReport }: ReportsMapProps) => {
       map.remove()
       mapRef.current = null
       markersLayerRef.current = null
-      isMountedRef.current = false
     }
-  }, [fetchPins, scheduleFetch])
+  }, [fetchPins, initialCenter, initialZoom, scheduleFetch])
+
+  useEffect(() => {
+    if (!mapRef.current || !initialCenter) {
+      return
+    }
+
+    const nextZoom = resolveInitialZoom(initialZoom)
+    mapRef.current.setView(initialCenter, nextZoom)
+  }, [initialCenter, initialZoom])
 
   useEffect(() => {
     const markersLayer = markersLayerRef.current
