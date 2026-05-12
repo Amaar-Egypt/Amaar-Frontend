@@ -1,220 +1,104 @@
 # Amaar Frontend
 
-Production-ready frontend for Amaar smart-city workflows, built with React + TypeScript + Vite + TailwindCSS.
+Production-ready frontend for Amaar smart-city workflows, built with React, TypeScript, Vite, and Tailwind CSS.
 
-## Highlights
+Amaar is an Arabic-first reporting and operations dashboard for city improvement reports. It helps admin and authority users review citizen reports, validate AI classifications, assign work, track execution, review submitted fixes, and close completed reports.
 
-- Arabic-first RTL experience with premium dark UI style.
-- Full authentication flow (Register + Login) with role-aware routing.
-- Authority dashboard with:
-  - Right sidebar navigation (default active page: `الرئيسية`)
-  - Statistics cards
-  - Search and status filters
-  - Reports table with approve/reject actions
-- Reusable service + hook architecture for backend integration.
-- Global dark/light theme system (dark default) with persistent user preference.
+## Live Demo
+
+- Production app: https://amaar-frontend-production.up.railway.app/login
+
+## Demo Accounts
+
+Use these accounts to test the production dashboard:
+
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@gmail.com` | `12345678` |
+| Authority | `authority@gmail.com` | `12345678` |
+
+## Features
+
+- Arabic-first RTL dashboard designed for city operations teams.
+- Secure login, registration, logout, protected routes, and remember-me support.
+- Role-aware access for `admin` and `authority` users, so each user sees the workflow that matches their responsibilities.
+- Dashboard statistics that summarize the current report workload and operational status counts.
+- Report search, filtering, and pagination to help teams find reports by status, priority, type, authority, or keyword.
+- Detailed report views with report metadata, description, priority, category, images, map location, AI confidence, and review status.
+- AI review workflow where users can approve AI classification or reject it and move the report to human review.
+- Human review workflow for correcting report type, changing priority, assigning the right authority, and adding review notes.
+- Execution workflow for starting work, rejecting execution with a reason, resolving reports, and closing completed work.
+- Fix review workflow for checking submitted fixes, viewing fix details, accepting valid fixes, and rejecting fixes that need more work.
+- Interactive map view powered by Leaflet and OpenStreetMap tiles, making report locations easier to inspect visually.
+- Light and dark theme support with saved user preference.
+- Reliable session handling with automatic token refresh and secure logout behavior.
+
+## Main Workflows
+
+### Report Review
+
+Teams can open each report, inspect its details, check the submitted image and location, review the AI classification, then decide whether the report can continue automatically or needs human correction.
+
+### Human Validation
+
+When AI classification is not enough, authorized users can manually update the report type, priority, assigned authority, and review notes. This keeps the report data clean before execution starts.
+
+### Authority Execution
+
+Authority users can follow assigned reports through the execution process. They can start work, handle rejected execution cases, submit or review fixes, and move reports toward completion.
+
+### Fix Approval
+
+Admins and authority users can inspect submitted fixes, review attached details, approve successful work, or reject fixes that do not solve the issue.
+
+### Map Monitoring
+
+The map page displays report locations as pins so teams can understand where issues are happening and inspect reports geographically instead of only through tables.
 
 ## Tech Stack
 
 - React 19
 - TypeScript
 - Vite
-- TailwindCSS
+- Tailwind CSS
 - Axios
 - React Router
-- React Hook Form + Zod
-
-## Folder Structure
-
-```text
-src/
-  assets/
-  components/
-    BrandLogo.tsx
-    ThemeToggle.tsx
-    dashboard/
-      DashboardSidebar.tsx
-      DashboardTopbar.tsx
-      ReportsFilters.tsx
-      ReportsTable.tsx
-      StatCard.tsx
-    form/
-      TextField.tsx
-    routing/
-      ProtectedRoute.tsx
-  context/
-    AppProviders.tsx
-    AuthContext.tsx
-    ThemeContext.tsx
-    auth-context.ts
-    theme-context.ts
-  hooks/
-    useAuth.ts
-    useAuthorityReports.ts
-    useLogin.ts
-    useRegister.ts
-    useTheme.ts
-  layout/
-    AuthLayout.tsx
-  pages/
-    Dashboard/
-      index.tsx
-    ForgotPassword/
-      index.tsx
-    Login/
-      index.tsx
-    Register/
-      index.tsx
-  services/
-    apiClient.ts
-    authService.ts
-    authStorage.ts
-    authTokenManager.ts
-    reportService.ts
-  types/
-    auth.ts
-    report.ts
-  utils/
-    jwt.ts
-    reportPresentation.ts
-  App.tsx
-  index.css
-  main.tsx
-```
-
-## Dashboard Architecture
-
-The authority dashboard is built with a scalable layered approach:
-
-- `pages/Dashboard/index.tsx`
-  - Orchestrates page-level state (active section, filter tab, search).
-  - Composes reusable dashboard components.
-- `hooks/useAuthorityReports.ts`
-  - Handles fetching reports, loading states, action states, and optimistic updates.
-- `services/reportService.ts`
-  - Encapsulates all report endpoints and response normalization.
-- `components/dashboard/*`
-  - Keeps UI blocks modular (sidebar, topbar, stats, filters, table).
-
-## Auth Flow
-
-1. User logs in from `Login` page.
-2. `useLogin` calls `/auth/login` and extracts `accessToken`, `refreshToken`, and user info.
-3. `AuthContext` starts the session and persists it (`sessionStorage` or `localStorage` with Remember Me).
-4. `ProtectedRoute` blocks unauthorized access.
-5. Role-based access:
-   - `authority` and `admin` -> redirected to `/dashboard`
-   - other roles -> kept away from authority dashboard
-6. API 401 responses trigger automatic refresh using `/auth/refresh`.
-7. If refresh succeeds, the app retries the failed request silently.
-8. If refresh fails, the session is cleared and the user is redirected to `/login`.
-
-## Refresh Token Lifecycle
-
-The frontend uses a production-style token lifecycle with automatic renewal.
-
-### Session Bootstrap
-
-- On app startup, `AuthContext` reads stored session from `authStorage`.
-- `authTokenManager` keeps in-memory `accessToken` + `refreshToken` for interceptors.
-- Storage location depends on Remember Me:
-  - `localStorage` when user chooses `تذكرني`
-  - `sessionStorage` otherwise
-
-### Request Lifecycle
-
-- `apiClient` request interceptor automatically attaches:
-  - `Authorization: Bearer <accessToken>`
-- If access token is valid, request completes normally.
-
-### Expired Access Token
-
-- On `401` from protected endpoints, response interceptor:
-  1. Checks refresh eligibility (prevents auth endpoint loops).
-  2. Queues one refresh request to avoid duplicate concurrent refresh calls.
-  3. Calls `POST /auth/refresh` using stored `refreshToken`.
-  4. Updates in-memory + persisted session with new token(s).
-  5. Retries the original failed request automatically.
-
-### Refresh Failure
-
-- If refresh fails (invalid/expired refresh token):
-  - session is cleared
-  - auth state resets
-  - `ProtectedRoute` redirects to `/login`
-
-### Loop and Concurrency Safety
-
-- Refresh is skipped for auth endpoints:
-  - `/auth/login`
-  - `/auth/register`
-  - `/auth/refresh`
-  - `/auth/logout`
-- Requests are retried only once (`_retry` guard).
-- Concurrent `401` responses share one in-flight refresh promise.
-
-## Logout Lifecycle
-
-- User logout calls `POST /auth/logout`.
-- Frontend then clears:
-  - access token
-  - refresh token
-  - user profile session
-  - storage preference snapshot
-- User is redirected to `/login`.
-
-If backend logout fails, frontend still clears local session to guarantee secure sign-out.
-
-## Theme System
-
-- Global provider: `ThemeContext`.
-- Default mode: `dark`.
-- Toggle component: `ThemeToggle`.
-- Persistence: `localStorage` (`amaar.ui.theme`).
-- Tailwind dark mode strategy: class-based (`darkMode: 'class'`).
-
-## API Integration
-
-Base URL (default):
-
-`https://amaarbackend-production.up.railway.app`
-
-Auth endpoints used:
-
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
-- `GET /users/me`
-
-Report endpoints used:
-
-- `GET /reports`
-- `GET /reports/{id}`
-- `PATCH /reports/{id}/accept`
-- `PATCH /reports/{id}/reject`
-- `PATCH /reports/{id}`
+- React Hook Form
+- Zod
+- Leaflet
 
 ## Run Locally
 
+Install dependencies:
+
 ```bash
 npm install
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-For production build:
+Build for production:
 
 ```bash
 npm run build
+```
+
+Preview the production build:
+
+```bash
 npm run preview
 ```
 
-## Environment Variables
+## Configuration
 
-Optional override:
+Create a `.env` file only if you want to use a different backend:
 
 ```env
-VITE_API_BASE_URL=https://amaarbackend-production.up.railway.app
+VITE_API_BASE_URL=your_backend_url
 ```
 
-If omitted, the app falls back to the production Amaar backend URL above.
+If this value is omitted, the app uses the production backend configured in the source code.
